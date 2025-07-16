@@ -1,41 +1,31 @@
 import os
 import re
 import time
-import hashlib
 from pathlib import Path
 from urllib.parse import urlparse, unquote
 from PySide6.QtCore import QObject, Signal, Property, Slot, QUrl
-from PySide6.QtQml import QmlElement
 import requests
 from concurrent.futures import ThreadPoolExecutor
 
-QML_IMPORT_NAME = "io.downloader.downloading"
-QML_IMPORT_MAJOR_VERSION = 1
-
-@QmlElement
 class DownloadingPage(QObject):
     # 信号定义
     downloadStarted = Signal(str, str, str)  # url, filename, save_path
     downloadProgress = Signal(str, float, float)  # url, progress, speed (bytes/sec)
-    downloadCompleted = Signal(str, str, str)  # url, save_path, file_hash
+    downloadCompleted = Signal(str, str)  # url, save_path
     downloadError = Signal(str, str)  # url, error_message
     downloadCancelled = Signal(str)  # url
 
-    def __init__(self, parent=None):
+    def __init__(self, settings, parent=None):
         super().__init__(parent)
+        self._settings = settings 
         self._active_downloads = {}
-        self._download_folder = ""
         self.thread_pool = ThreadPoolExecutor(max_workers=64)
         self.session = requests.Session()
 
     @Property(str)
     def downloadFolder(self):
-        return self._download_folder
-
-    @downloadFolder.setter
-    def downloadFolder(self, value):
-        """设置下载文件夹路径"""
-        self._download_folder = value
+        """从settings获取下载文件夹"""
+        return self._settings.downloadFolder
 
     def _ensure_directory_exists(self, path):
         """确保目标目录存在"""
@@ -103,14 +93,6 @@ class DownloadingPage(QObject):
         except:
             return "download"
 
-    def _calculate_file_hash(self, file_path):
-        """计算文件哈希值"""
-        sha256 = hashlib.sha256()
-        with open(file_path, 'rb') as f:
-            for chunk in iter(lambda: f.read(8192), b''):
-                sha256.update(chunk)
-        return sha256.hexdigest()
-
     def _download_file(self, url, save_path):
         """执行下载任务"""
         temp_path = f"{save_path}.downloading"
@@ -138,7 +120,7 @@ class DownloadingPage(QObject):
                     self._get_filename_from_url(response.url)
                 )
                 safe_name = self._get_safe_filename(filename)
-                desired_path = os.path.join(os.path.dirname(save_path), safe_name)
+                desired_path = os.path.join(self.downloadFolder, safe_name)  # 使用settings中的下载目录
                 final_path = self._get_available_filename(desired_path)
                 temp_path = f"{final_path}.downloading"
                 
@@ -176,11 +158,8 @@ class DownloadingPage(QObject):
                 # 重命名为最终文件名
                 os.replace(temp_path, final_path)
                 
-                # 计算文件哈希
-                file_hash = self._calculate_file_hash(final_path)
-                
                 # 发送完成信号
-                self.downloadCompleted.emit(url, final_path, file_hash)
+                self.downloadCompleted.emit(url, final_path)
                 
         except Exception as e:
             error_msg = str(e)
@@ -212,7 +191,7 @@ class DownloadingPage(QObject):
             # 生成初始路径
             filename = self._get_filename_from_url(url)
             safe_name = self._get_safe_filename(filename)
-            save_path = os.path.join(self._download_folder, safe_name)
+            save_path = os.path.join(self.downloadFolder, safe_name)  # 使用settings中的下载目录
             
             # 添加到活动下载
             self._active_downloads[url] = {
@@ -277,6 +256,11 @@ class DownloadingPage(QObject):
     def getDownloadSpeed(self, url):
         """获取下载速度"""
         return self._active_downloads.get(url, {}).get("speed", 0)
+
+    @Slot(str, result=str)
+    def getDownloadFilename(self, url):
+        """获取下载文件名"""
+        return self._active_downloads.get(url, {}).get("filename", "")
 
     @Slot(result=list)
     def getActiveDownloads(self):

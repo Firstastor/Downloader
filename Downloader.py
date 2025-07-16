@@ -10,10 +10,11 @@ from Data.Code.SettingPage import Settings
 if __name__ == "__main__":
     app = QGuiApplication(sys.argv)
 
-    engine = QQmlApplicationEngine()
-    downloadingPage = DownloadingPage()
-    downloadedPage = DownloadedPage()
     settings = Settings()
+    engine = QQmlApplicationEngine()
+    downloadingPage = DownloadingPage(settings)
+    downloadedPage = DownloadedPage()
+    
     engine.rootContext().setContextProperty("downloadingPageBackend", downloadingPage)
     engine.rootContext().setContextProperty("downloadedPageBackend", downloadedPage)
     engine.rootContext().setContextProperty("settingsBackend", settings)

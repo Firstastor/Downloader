@@ -38,8 +38,8 @@ class Settings(QObject):
                 fallback=str(Path.home() / "Downloads")
             )
             self._speed_limit = config.getint("DEFAULT", "speed_limit", fallback=0)
-            self._concurrent_downloads = config.getint("DEFAULT", "concurrent_downloads", fallback=3)
-            self._max_threads_per_download = config.getint("DEFAULT", "max_threads_per_download", fallback=4)
+            self._concurrent_downloads = config.getint("DEFAULT", "concurrent_downloads", fallback=5)
+            self._max_threads_per_download = config.getint("DEFAULT", "max_threads_per_download", fallback=32)
         except Exception as e:
             print(f"Error loading config: {e}")
             self._set_default_values()

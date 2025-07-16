@@ -1,14 +1,10 @@
 import os
 import json
+import sys
 import time
 from pathlib import Path
 from PySide6.QtCore import QObject, Signal, Property, Slot, QUrl, QFileSystemWatcher
-from PySide6.QtQml import QmlElement
 
-QML_IMPORT_NAME = "io.downloader.downloaded"
-QML_IMPORT_MAJOR_VERSION = 1
-
-@QmlElement
 class DownloadedPage(QObject):
     downloadsChanged = Signal()
     downloadRemoved = Signal(str)
@@ -99,16 +95,29 @@ class DownloadedPage(QObject):
         except Exception as e:
             print(f"删除文件失败: {e}")
 
+    @Slot(str, result=bool)
+    def confirmDelete(self, url):
+        """确认删除对话框的逻辑"""
+        return True 
+
     @Slot(str, result=QUrl)
     def getFileUrl(self, filename):
-        """获取文件URL"""
-        return QUrl.fromLocalFile(os.path.join(self._download_folder, filename))
+        """获取文件完整路径（用于直接打开文件）"""
+        file_path = os.path.normpath(os.path.join(self._download_folder, filename))
+        if os.path.exists(file_path):
+            return QUrl.fromLocalFile(file_path)
+        print(f"文件不存在: {file_path}")  # 调试输出
+        return QUrl()
 
     @Slot(str, result=QUrl)
     def getFolderUrl(self, filename):
-        """获取文件夹URL"""
-        return QUrl.fromLocalFile(self._download_folder)
-
+        """获取文件夹路径（用于打开所在文件夹）"""
+        folder_path = os.path.normpath(self._download_folder)
+        if os.path.isdir(folder_path):
+            return QUrl.fromLocalFile(folder_path)
+        print(f"文件夹不存在: {folder_path}")  # 调试输出
+        return QUrl()
+    
     # 内部方法
     def _load_downloads(self):
         """从文件加载下载历史"""

@@ -5,7 +5,6 @@ import QtQuick.Layouts
 import QtQuick.Window
 
 ColumnLayout {
-
     // 下载历史列表
     ListView {
         id: historyList
@@ -31,24 +30,67 @@ ColumnLayout {
                 // 操作按钮行
                 RowLayout {
                     Button {
-                        text: "Open"
-                        onClicked: Qt.openUrlExternally(downloadedPageBackend.getFileUrl(modelData.filename))
+                        text: "Open File"
+                        onClicked: {
+                            var fileUrl = downloadedPageBackend.getFileUrl(modelData.filename)
+                            if (fileUrl.toString() !== "") {
+                                Qt.openUrlExternally(fileUrl)
+                            } else {
+                                console.log("无法获取文件URL")
+                            }
+                        }
                     }
 
                     Button {
                         text: "Open Folder"
-                        onClicked: Qt.openUrlExternally(downloadedPageBackend.getFolderUrl(modelData.filename))
+                        onClicked: {
+                            var folderUrl = downloadedPageBackend.getFolderUrl(modelData.filename)
+                            if (folderUrl.toString() !== "") {
+                                Qt.openUrlExternally(folderUrl)
+                            } else {
+                                console.log("无法获取文件夹URL")
+                            }
+                        }
                     }
 
                     Button {
                         text: "Delete"
                         onClicked: {
-                            downloadedPageBackend.removeDownload(modelData.url)
+                            deleteDialog.url = modelData.url
+                            deleteDialog.filename = modelData.filename
+                            deleteDialog.open()
                         }
                     }
                 }
-
             }
+        }
+    }
+
+    // 删除确认对话框
+    Dialog {
+        id: deleteDialog
+        title: "Confirm Delete"
+        modal: true
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        
+        property string url
+        property string filename
+
+        ColumnLayout {
+            spacing: 10
+            Label {
+                text: "Are you sure you want to delete:"
+            }
+            Label {
+                text: deleteDialog.filename
+                font.bold: true
+                elide: Text.ElideMiddle
+                Layout.maximumWidth: 300
+            }
+        }
+
+        onAccepted: {
+            downloadedPageBackend.removeDownload(deleteDialog.url)
         }
     }
 
@@ -57,14 +99,6 @@ ColumnLayout {
         target: downloadedPageBackend
         function onDownloadsChanged() {
             historyList.model = downloadedPageBackend.getDownloadsList()
-        }
-    }
-    
-    // 监听设置变化
-    Connections {
-        target: settings
-        function onDownloadFolderChanged() {
-            downloadedPageBackend.downloadFolder = settings.downloadFolder
         }
     }
 }

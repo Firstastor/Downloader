@@ -2,9 +2,9 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Controls.FluentWinUI3
 import QtQuick.Layouts
-import QtQuick.Window
 
 ColumnLayout {
+    id: root
 
     // URL 输入框和下载按钮
     RowLayout {
@@ -43,10 +43,9 @@ ColumnLayout {
             ColumnLayout {
                 width: parent.width
 
-                // 文件名和删除按钮
                 RowLayout {
                     Label {
-                        text: filename
+                        text: model.filename
                         elide: Text.ElideMiddle
                         Layout.fillWidth: true
                     }
@@ -54,34 +53,23 @@ ColumnLayout {
                     Button {
                         text: "Cancel"
                         onClicked: {
-                            downloadingPageBackend.cancelDownload(url)
-                            downloadModel.remove(index)
+                            downloadingPageBackend.cancelDownload(model.url)
                         }
                     }
                 }
 
-                // 进度条
                 ProgressBar {
-                    value: progress / 100 
+                    value: model.progress / 100
                     Layout.fillWidth: true
                 }
 
-                // 下载速度和进度文本
                 RowLayout {
                     Label {
-                        text: {
-                            if (speed <= 0) {
-                                return "Calculating..."
-                            } else if (speed < 1024 * 1024) {
-                                return "Speed: " + (speed / 1024).toFixed(2) + " KB/s"
-                            } else {
-                                return "Speed: " + (speed / (1024 * 1024)).toFixed(2) + " MB/s"
-                            }
-                        }
+                        text: formatSpeed(model.speed)
                     }
                 
                     Label {
-                        text: "Progress: " + progress.toFixed(1) + "%"
+                        text: "Progress: " + model.progress.toFixed(1) + "%"
                         horizontalAlignment: Text.AlignRight
                         Layout.fillWidth: true
                     }
@@ -90,11 +78,43 @@ ColumnLayout {
         }
     }
 
+    // 格式化速度显示
+    function formatSpeed(speed) {
+        if (speed <= 0) return "Calculating..."
+        if (speed < 1024 * 1024) return "Speed: " + (speed / 1024).toFixed(2) + " KB/s"
+        return "Speed: " + (speed / (1024 * 1024)).toFixed(2) + " MB/s"
+    }
+
+    // 初始化下载列表
+    function initializeDownloads() {
+        downloadModel.clear()
+        var downloads = downloadingPageBackend.getActiveDownloads()
+        for (var i = 0; i < downloads.length; i++) {
+            var url = downloads[i]
+            downloadModel.append({
+                url: url,
+                filename: downloadingPageBackend.getDownloadFilename(url) || "Unknown",
+                savePath: "",
+                progress: downloadingPageBackend.getDownloadProgress(url),
+                speed: downloadingPageBackend.getDownloadSpeed(url)
+            })
+        }
+    }
+
+    // 组件加载时初始化
+    Component.onCompleted: {
+        initializeDownloads()
+    }
+
     // 连接后端信号
     Connections {
         target: downloadingPageBackend
 
         function onDownloadStarted(url, filename, savePath) {
+            for (var i = 0; i < downloadModel.count; i++) {
+                if (downloadModel.get(i).url === url) return
+            }
+            
             downloadModel.append({
                 url: url,
                 filename: filename,
@@ -107,23 +127,22 @@ ColumnLayout {
         function onDownloadProgress(url, progress, speed) {
             for (var i = 0; i < downloadModel.count; i++) {
                 if (downloadModel.get(i).url === url) {
-                    downloadModel.setProperty(i, "progress", progress)
-                    downloadModel.setProperty(i, "speed", speed)
+                    downloadModel.set(i, {
+                        url: url,
+                        filename: downloadModel.get(i).filename,
+                        savePath: downloadModel.get(i).savePath,
+                        progress: progress,
+                        speed: speed
+                    })
                     break
                 }
             }
         }
 
         function onDownloadCompleted(url, savePath) {
-            // 通知 DownloadedPage 添加记录
-            downloadedPageBackend.addDownload(url, savePath.split("/").pop())
-            
-            // 从下载列表中移除
-            for (var i = 0; i < downloadModel.count; i++) {
-                if (downloadModel.get(i).url === url) {
-                    downloadModel.remove(i)
-                    break
-                }
+            removeDownloadItem(url)
+            if (typeof downloadedPageBackend !== "undefined") {
+                downloadedPageBackend.addDownload(url, savePath.split("/").pop())
             }
         }
 
@@ -133,6 +152,30 @@ ColumnLayout {
                     downloadModel.setProperty(i, "filename", "Error: " + errorMessage)
                     break
                 }
+            }
+        }
+
+        function onDownloadCancelled(url) {
+            removeDownloadItem(url)
+        }
+    }
+
+    // 移除下载项
+    function removeDownloadItem(url) {
+        for (var i = 0; i < downloadModel.count; i++) {
+            if (downloadModel.get(i).url === url) {
+                downloadModel.remove(i)
+                break
+            }
+        }
+    }
+
+    // 当页面变为可见时刷新列表
+    Connections {
+        target: root
+        function onVisibleChanged() {
+            if (root.visible) {
+                initializeDownloads()
             }
         }
     }
