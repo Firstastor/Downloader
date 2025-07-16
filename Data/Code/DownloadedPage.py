@@ -112,12 +112,13 @@ class DownloadedPage(QObject):
     @Slot(str, result=QUrl)
     def getFolderUrl(self, filename):
         """获取文件夹路径（用于打开所在文件夹）"""
-        folder_path = os.path.normpath(self._download_folder)
+        file_path = os.path.normpath(os.path.join(self._download_folder, filename))
+        folder_path = os.path.dirname(file_path)
         if os.path.isdir(folder_path):
             return QUrl.fromLocalFile(folder_path)
         print(f"文件夹不存在: {folder_path}")  # 调试输出
         return QUrl()
-    
+        
     # 内部方法
     def _load_downloads(self):
         """从文件加载下载历史"""
