@@ -17,7 +17,7 @@ GroupBox {
             font.pixelSize: 16
         }
         Label { 
-            text: "Version 0.0.1" 
+            text: "Version 0.0.2" 
             font.pixelSize: 14
         }
         Label {

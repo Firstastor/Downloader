@@ -9,16 +9,23 @@ from Data.Code.SettingPage import Settings
 
 if __name__ == "__main__":
     app = QGuiApplication(sys.argv)
-    
-    engine = QQmlApplicationEngine()
 
-    engine.rootContext().setContextProperty("downloadingPageBackend", DownloadingPage())
-    engine.rootContext().setContextProperty("downloadedPageBackend", DownloadedPage())
-    engine.rootContext().setContextProperty("settingsBackend", Settings())
+    engine = QQmlApplicationEngine()
+    downloadingPage = DownloadingPage()
+    downloadedPage = DownloadedPage()
+    settings = Settings()
+    engine.rootContext().setContextProperty("downloadingPageBackend", downloadingPage)
+    engine.rootContext().setContextProperty("downloadedPageBackend", downloadedPage)
+    engine.rootContext().setContextProperty("settingsBackend", settings)
 
     engine.load("Data/QML/Main.qml") 
     
     if not engine.rootObjects():
         sys.exit(-1)
     
+    def shutdown():
+        settings.cleanup()
+        engine.deleteLater()
+
+    app.aboutToQuit.connect(shutdown)
     sys.exit(app.exec())

@@ -5,7 +5,7 @@ a = Analysis(
     ['Downloader.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('Data', 'Data')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
