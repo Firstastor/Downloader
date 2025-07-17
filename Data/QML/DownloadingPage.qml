@@ -5,7 +5,7 @@ import QtQuick.Layouts
 import QtQuick.Window
 
 ColumnLayout {
-    // 错误弹窗
+    // Error popup component
     Popup {
         id: errorPopup
         width: 300
@@ -35,12 +35,12 @@ ColumnLayout {
         }
     }
 
-    function showErrorPopup(message) {
+    function showError(message) {
         errorMessage.text = message
         errorPopup.open()
     }
 
-    // URL 输入框和下载按钮
+    // URL input and download button
     RowLayout {
         Layout.fillWidth: true
         
@@ -54,28 +54,31 @@ ColumnLayout {
         Button {
             text: "Download"
             onClicked: {
-                if (urlInput.text.trim() !== "") {
-                    // 先检查是否已经在下载列表中
-                    var isDuplicate = false;
-                    for (var i = 0; i < downloadModel.count; i++) {
-                        if (downloadModel.get(i).url === urlInput.text) {
-                            isDuplicate = true;
-                            break;
-                        }
-                    }
-                    
-                    if (isDuplicate) {
-                        showErrorPopup("This download is already in progress");
+                const url = urlInput.text.trim()
+                if (url) {
+                    if (isDuplicateUrl(url)) {
+                        showError("This download is already in progress")
+                    } else if (downloadingPageBackend.isUrlInHistory(url)) {
+                        showError("This file has already been downloaded")
                     } else {
-                        downloadingPageBackend.startDownload(urlInput.text);
-                        urlInput.clear();
+                        downloadingPageBackend.startDownload(url)
+                        urlInput.clear()
                     }
                 }
             }
         }
     }
 
-    // 下载项列表
+    function isDuplicateUrl(url) {
+        for (let i = 0; i < downloadModel.count; i++) {
+            if (downloadModel.get(i).url === url) {
+                return true
+            }
+        }
+        return false
+    }
+
+    // Download list view
     ListView {
         id: downloadList
         Layout.fillWidth: true
@@ -92,7 +95,6 @@ ColumnLayout {
 
                 RowLayout {
                     Label {
-                        id: filenameLabel
                         text: model.filename
                         elide: Text.ElideMiddle
                         Layout.fillWidth: true
@@ -114,12 +116,10 @@ ColumnLayout {
 
                 RowLayout {
                     visible: !model.isError && !model.isCompleted
-                    Label {
-                        text: formatSpeed(model.speed)
-                    }
+                    Label { text: formatSpeed(model.speed) }
                 
                     Label {
-                        text: "Progress: " + model.progress.toFixed(1) + "%"
+                        text: `Progress: ${model.progress.toFixed(1)}%`
                         horizontalAlignment: Text.AlignRight
                         Layout.fillWidth: true
                     }
@@ -144,16 +144,15 @@ ColumnLayout {
 
     function formatSpeed(speed) {
         if (speed <= 0) return "Starting..."
-        if (speed < 1024) return speed.toFixed(0) + " B/s"
-        if (speed < 1024 * 1024) return (speed / 1024).toFixed(1) + " KB/s"
-        return (speed / (1024 * 1024)).toFixed(1) + " MB/s"
+        if (speed < 1024) return `${speed.toFixed(0)} B/s`
+        if (speed < 1024 * 1024) return `${(speed / 1024).toFixed(1)} KB/s`
+        return `${(speed / (1024 * 1024)).toFixed(1)} MB/s`
     }
 
     function initializeDownloads() {
         downloadModel.clear()
-        var downloads = downloadingPageBackend.getActiveDownloads()
-        for (var i = 0; i < downloads.length; i++) {
-            var url = downloads[i]
+        const downloads = downloadingPageBackend.getActiveDownloads()
+        downloads.forEach(url => {
             downloadModel.append({
                 url: url,
                 filename: downloadingPageBackend.getDownloadFilename(url) || "Unknown",
@@ -164,25 +163,21 @@ ColumnLayout {
                 isCompleted: false,
                 errorMessage: ""
             })
-        }
+        })
     }
 
     Component.onCompleted: initializeDownloads()
 
     Timer {
-        id: errorCleanupTimer
-        interval: 5000  
+        interval: 5000
         repeat: true
+        running: true
         onTriggered: {
-            var itemsToRemove = []
-            for (var i = 0; i < downloadModel.count; i++) {
-                var item = downloadModel.get(i)
+            for (let i = downloadModel.count - 1; i >= 0; i--) {
+                const item = downloadModel.get(i)
                 if (item.isError || item.isCompleted) {
-                    itemsToRemove.push(i)
+                    downloadModel.remove(i)
                 }
-            }
-            for (var j = itemsToRemove.length - 1; j >= 0; j--) {
-                downloadModel.remove(itemsToRemove[j])
             }
         }
     }
@@ -191,7 +186,6 @@ ColumnLayout {
         target: downloadingPageBackend
 
         function onDownloadStarted(url, filename, savePath) {
-            // 这个信号现在只会在通过检查后才会触发，所以不需要重复检查
             downloadModel.append({
                 url: url,
                 filename: filename,
@@ -205,7 +199,7 @@ ColumnLayout {
         }
 
         function onDownloadProgress(url, progress, speed) {
-            for (var i = 0; i < downloadModel.count; i++) {
+            for (let i = 0; i < downloadModel.count; i++) {
                 if (downloadModel.get(i).url === url) {
                     downloadModel.setProperty(i, "progress", progress)
                     downloadModel.setProperty(i, "speed", speed)
@@ -215,11 +209,10 @@ ColumnLayout {
         }
 
         function onDownloadCompleted(url, savePath) {
-            for (var i = 0; i < downloadModel.count; i++) {
+            for (let i = 0; i < downloadModel.count; i++) {
                 if (downloadModel.get(i).url === url) {
                     downloadModel.setProperty(i, "isCompleted", true)
                     downloadModel.setProperty(i, "progress", 100)
-                    errorCleanupTimer.start()
                     break
                 }
             }
@@ -229,36 +222,36 @@ ColumnLayout {
         }
 
         function onDownloadError(url, errorMessage) {
-            showErrorPopup(errorMessage)
-            
-            for (var i = 0; i < downloadModel.count; i++) {
+            // 先更新模型再显示弹窗，避免阻塞
+            for (let i = 0; i < downloadModel.count; i++) {
                 if (downloadModel.get(i).url === url) {
                     downloadModel.set(i, {
                         url: url,
                         filename: downloadModel.get(i).filename,
                         savePath: downloadModel.get(i).savePath,
                         progress: downloadModel.get(i).progress,
-                        speed: 0,
+                        speed: 0, // 重置速度为0
                         isError: true,
-                        isCompleted: false,
+                        isCompleted: false, // 确保完成状态为false
                         errorMessage: errorMessage
                     })
-                    errorCleanupTimer.start()
                     break
                 }
             }
+            
+            // 使用定时器避免阻塞UI
+            Qt.callLater(() => {
+                showError(errorMessage)
+                errorCleanupTimer.start() // 确保自动清理定时器启动
+            })
         }
 
         function onDownloadCancelled(url) {
-            removeDownloadItem(url)
-        }
-    }
-
-    function removeDownloadItem(url) {
-        for (var i = 0; i < downloadModel.count; i++) {
-            if (downloadModel.get(i).url === url) {
-                downloadModel.remove(i)
-                break
+            for (let i = 0; i < downloadModel.count; i++) {
+                if (downloadModel.get(i).url === url) {
+                    downloadModel.remove(i)
+                    break
+                }
             }
         }
     }
@@ -272,3 +265,4 @@ ColumnLayout {
         }
     }
 }
+

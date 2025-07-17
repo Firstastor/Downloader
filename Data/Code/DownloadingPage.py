@@ -2,7 +2,7 @@ from PySide6.QtCore import QObject, Signal, Property, Slot, QUrl, QFile, QIODevi
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
 class DownloadingPage(QObject):
-    # 信号定义
+    # Signals
     downloadStarted = Signal(str, str, str)  # url, filename, save_path
     downloadProgress = Signal(str, float, float)  # url, progress, speed
     downloadCompleted = Signal(str, str)  # url, save_path
@@ -15,56 +15,9 @@ class DownloadingPage(QObject):
         self._active_downloads = {}
         self._network_manager = QNetworkAccessManager(self)
 
-    @Property(str)
+    @Property(str, constant=True)
     def downloadFolder(self):
         return self._settings.downloadFolder
-
-    def _is_valid_url(self, url_str):
-        url = QUrl(url_str)
-        return url.isValid() and url.scheme() in ('http', 'https') and url.host()
-
-    def _ensure_directory_exists(self, path):
-        dir_info = QFileInfo(path)
-        parent_dir = dir_info.dir()
-        return parent_dir.mkpath(".")
-
-    def _get_safe_filename(self, filename):
-        if not filename:
-            return "download"
-        
-        decoded = QUrl.fromPercentEncoding(filename.encode())
-        
-        keepchars = (' ', '-', '_', '.', '(', ')', '[', ']')
-        safe_name = ""
-        for c in decoded:
-            if c.isalnum() or c in keepchars or ('\u4e00' <= c <= '\u9fff'):
-                safe_name += c
-        
-        safe_name = ' '.join(safe_name.split())
-        if len(safe_name) > 255:
-            safe_name = safe_name[:255]
-        
-        if safe_name.startswith('.'):
-            safe_name = "download" + safe_name
-            
-        return safe_name
-
-    def _get_available_filename(self, desired_path):
-        file_info = QFileInfo(desired_path)
-        if not file_info.exists():
-            return desired_path
-            
-        dir_path = file_info.dir()
-        base_name = file_info.completeBaseName()
-        suffix = file_info.suffix()
-        
-        counter = 1
-        while True:
-            new_name = f"{base_name}_{counter}.{suffix}" if suffix else f"{base_name}_{counter}"
-            new_path = dir_path.filePath(new_name)
-            if not QFileInfo(new_path).exists():
-                return new_path
-            counter += 1
 
     @Slot(QUrl)
     def startDownload(self, url):
@@ -83,28 +36,24 @@ class DownloadingPage(QObject):
 
         try:
             filename = self._get_filename_from_url(url_str)
-            safe_name = self._get_safe_filename(filename)
-            
-            save_dir = QDir(self.downloadFolder)
-            save_path = save_dir.filePath(safe_name)
-            final_path = self._get_available_filename(save_path)
+            safe_name = self._sanitize_filename(filename)
+            final_path = self._get_available_path(QDir(self.downloadFolder).filePath(safe_name))
             temp_path = f"{final_path}.downloading"
-            
+
             if not self._ensure_directory_exists(final_path):
                 raise Exception("Cannot create directory")
-            
+
             file = QFile(temp_path)
             if not file.open(QIODevice.WriteOnly):
                 raise Exception("Cannot create temp file")
-            
+
             request = QNetworkRequest(QUrl(url_str))
-            # 正确设置HTTP/2属性
             request.setAttribute(QNetworkRequest.Http2AllowedAttribute, True)
             request.setAttribute(QNetworkRequest.Http2CleartextAllowedAttribute, True)
-            
+
             timer = QElapsedTimer()
             timer.start()
-            
+
             self._active_downloads[url_str] = {
                 "filename": safe_name,
                 "save_path": final_path,
@@ -115,107 +64,26 @@ class DownloadingPage(QObject):
                 "reply": None,
                 "is_cancelled": False
             }
-            
+
             self.downloadStarted.emit(url_str, safe_name, final_path)
             reply = self._network_manager.get(request)
-            
+
             reply.downloadProgress.connect(
-                lambda br, bt, url=url_str: self._handle_download_progress(url, br, bt)
+                lambda br, bt, url=url_str: self._handle_progress(url, br, bt)
             )
             reply.finished.connect(
-                lambda url=url_str, reply=reply: self._handle_download_finished(url, reply)
+                lambda url=url_str, reply=reply: self._handle_finished(url, reply)
             )
             reply.errorOccurred.connect(
-                lambda error, url=url_str, reply=reply: self._handle_download_error(url, reply, error)
+                lambda error, url=url_str: self._handle_error(url, error)
             )
-            
+            reply.readyRead.connect(lambda: self._write_data(url_str, reply, file))
+
             self._active_downloads[url_str]["reply"] = reply
-            reply.readyRead.connect(lambda: self._write_to_file(url_str, reply, file))
-            
+
         except Exception as e:
             self.downloadError.emit(url_str, f"Download failed: {str(e)}")
             self._cleanup_download(url_str)
-
-    def _write_to_file(self, url_str, reply, file):
-        if url_str not in self._active_downloads or self._active_downloads[url_str]["is_cancelled"]:
-            return
-            
-        data = reply.readAll()
-        if data.size() > 0:
-            file.write(data)
-            self._active_downloads[url_str]["bytes_received"] += data.size()
-
-    def _handle_download_progress(self, url_str, bytesReceived, bytesTotal):
-        if url_str not in self._active_downloads or self._active_downloads[url_str]["is_cancelled"]:
-            return
-            
-        download_info = self._active_downloads[url_str]
-        elapsed = download_info["timer"].elapsed() / 1000.0  # 转换为秒
-        speed = bytesReceived / max(0.001, elapsed)
-        progress = (bytesReceived / bytesTotal * 100) if bytesTotal > 0 else 0
-        progress = max(0, min(100, progress))
-        
-        self.downloadProgress.emit(url_str, progress, speed)
-
-    def _handle_download_finished(self, url_str, reply):
-        if url_str not in self._active_downloads:
-            return
-            
-        download_info = self._active_downloads[url_str]
-        
-        if download_info["is_cancelled"]:
-            return
-            
-        try:
-            if reply.error() != QNetworkReply.NoError:
-                if reply.error() != QNetworkReply.OperationCanceledError:
-                    self.downloadError.emit(url_str, reply.errorString())
-                return
-                
-            download_info["file"].flush()
-            download_info["file"].close()
-            
-            temp_path = download_info["temp_path"]
-            final_path = download_info["save_path"]
-            
-            temp_file = QFile(temp_path)
-            if temp_file.exists():
-                final_file = QFile(final_path)
-                if final_file.exists():
-                    final_file.remove()
-                if not temp_file.rename(final_path):
-                    raise Exception("Rename failed")
-            
-            self.downloadCompleted.emit(url_str, final_path)
-            
-        except Exception as e:
-            self.downloadError.emit(url_str, f"Download completion error: {str(e)}")
-        finally:
-            self._cleanup_download(url_str)
-
-    def _handle_download_error(self, url_str, reply, error):
-        if url_str not in self._active_downloads:
-            return
-            
-        if error == QNetworkReply.OperationCanceledError:
-            return
-                
-        self.downloadError.emit(url_str, reply.errorString())
-        self._cleanup_download(url_str)
-        
-    def _safe_abort_reply(self, reply, url_str):
-        try:
-            if reply.isRunning():
-                reply.abort()
-            self._cleanup_reply(reply, url_str)
-        except Exception as e:
-            self.downloadError.emit(url_str, f"Error aborting reply: {str(e)}")
-
-    def _cleanup_reply(self, reply, url_str):
-        try:
-            reply.deleteLater()
-        except Exception as e:
-            self.downloadError.emit(url_str, f"Error deleting reply: {str(e)}")
 
     @Slot(QUrl)
     def cancelDownload(self, url):
@@ -280,60 +148,175 @@ class DownloadingPage(QObject):
         self.downloadCancelled.emit(url_str)
         self._active_downloads.pop(url_str, None)
 
+    def _safe_abort_reply(self, reply, url_str):
+        try:
+            reply.abort()  # 先中止再删除
+            reply.deleteLater()
+        except RuntimeError as e:
+            print(f"安全中止失败: {e}")
+
+    def _finalize_cancellation(self, url_str):
+        if url_str not in self._active_downloads:
+            return
+
+        download_info = self._active_downloads.pop(url_str)
+        
+        # 5. 安全删除临时文件
+        temp_path = download_info.get("temp_path")
+        if temp_path:
+            temp_file = QFile(temp_path)
+            if temp_file.exists():
+                # 确保文件可访问后再删除
+                QTimer.singleShot(0, lambda: (
+                    temp_file.remove() if temp_file.exists() else None
+                ))
+
+        # 6. 发送取消信号（最后执行）
+        self.downloadCancelled.emit(url_str)
+
+    # Helper methods
+    def _is_valid_url(self, url_str):
+        url = QUrl(url_str)
+        return url.isValid() and url.scheme() in ('http', 'https') and url.host()
+
+    def _ensure_directory_exists(self, path):
+        return QFileInfo(path).dir().mkpath(".")
+
+    def _sanitize_filename(self, filename):
+        if not filename:
+            return "download"
+        
+        safe_chars = (' ', '-', '_', '.', '(', ')', '[', ']')
+        safe_name = ''.join(c for c in QUrl.fromPercentEncoding(filename.encode()) 
+                           if c.isalnum() or c in safe_chars or ('\u4e00' <= c <= '\u9fff'))
+        
+        safe_name = ' '.join(safe_name.split())
+        if len(safe_name) > 255:
+            safe_name = safe_name[:255]
+        if safe_name.startswith('.'):
+            safe_name = "download" + safe_name
+            
+        return safe_name
+
+    def _get_available_path(self, desired_path):
+        file_info = QFileInfo(desired_path)
+        if not file_info.exists():
+            return desired_path
+            
+        base = file_info.completeBaseName()
+        suffix = file_info.suffix()
+        dir_path = file_info.dir()
+        counter = 1
+        
+        while True:
+            new_path = dir_path.filePath(f"{base}_{counter}.{suffix}" if suffix else f"{base}_{counter}")
+            if not QFileInfo(new_path).exists():
+                return new_path
+            counter += 1
+
+    def _get_filename_from_url(self, url_str):
+        path = QUrl(url_str).path()
+        return path.split('/')[-1] if path else "download"
+
+    def _write_data(self, url_str, reply, file):
+        if url_str not in self._active_downloads or self._active_downloads[url_str]["is_cancelled"]:
+            return
+            
+        data = reply.readAll()
+        if data.size() > 0:
+            file.write(data)
+            self._active_downloads[url_str]["bytes_received"] += data.size()
+
+    def _handle_progress(self, url_str, bytes_received, bytes_total):
+        if url_str not in self._active_downloads or self._active_downloads[url_str]["is_cancelled"]:
+            return
+            
+        info = self._active_downloads[url_str]
+        elapsed = info["timer"].elapsed() / 1000.0
+        speed = bytes_received / max(0.001, elapsed)
+        progress = (bytes_received / bytes_total * 100) if bytes_total > 0 else 0
+        progress = max(0, min(100, progress))
+        
+        self.downloadProgress.emit(url_str, progress, speed)
+
+    def _handle_finished(self, url_str, reply):
+        if url_str not in self._active_downloads:
+            return
+            
+        info = self._active_downloads[url_str]
+        
+        if info["is_cancelled"] or reply.error() != QNetworkReply.NoError:
+            return
+            
+        try:
+            info["file"].close()
+            temp_file = QFile(info["temp_path"])
+            if temp_file.exists():
+                final_file = QFile(info["save_path"])
+                if final_file.exists():
+                    final_file.remove()
+                if not temp_file.rename(info["save_path"]):
+                    raise Exception("Rename failed")
+            
+            self.downloadCompleted.emit(url_str, info["save_path"])
+        except Exception as e:
+            self.downloadError.emit(url_str, f"Completion error: {str(e)}")
+        finally:
+            self._cleanup_download(url_str)
+
+    def _handle_error(self, url_str, error):
+        if url_str not in self._active_downloads or error == QNetworkReply.OperationCanceledError:
+            return
+            
+        self.downloadError.emit(url_str, self._active_downloads[url_str]["reply"].errorString())
+        self._cleanup_download(url_str)
+
+    def _abort_reply(self, reply, url_str):
+        try:
+            if reply.isRunning():
+                reply.abort()
+            reply.deleteLater()
+        except Exception as e:
+            self.downloadError.emit(url_str, f"Error aborting reply: {str(e)}")
+
     def _cleanup_download(self, url_str):
         if url_str not in self._active_downloads:
             return
             
-        download_info = self._active_downloads.pop(url_str, None)
-        if not download_info:
+        info = self._active_downloads.pop(url_str, None)
+        if not info:
             return
 
-        # 清理文件资源
-        if "file" in download_info:
-            try:
-                if download_info["file"].isOpen():
-                    download_info["file"].close()
-                if not download_info.get("is_cancelled", False) and "temp_path" in download_info:
-                    temp_file = QFile(download_info["temp_path"])
-                    if temp_file.exists():
-                        temp_file.remove()
-            except Exception as e:
-                self.downloadError.emit(url_str, f"Error cleaning up file: {str(e)}")
+        if info["file"].isOpen():
+            info["file"].close()
+            
+        if not info.get("is_cancelled", False):
+            temp_file = QFile(info["temp_path"])
+            if temp_file.exists():
+                temp_file.remove()
 
-        # 清理网络回复
-        if "reply" in download_info and download_info["reply"]:
-            reply = download_info["reply"]
-            try:
-                if reply.isRunning():
-                    reply.abort()
-                reply.deleteLater()
-            except Exception as e:
-                self.downloadError.emit(url_str, f"Error cleaning up reply: {str(e)}")
+        reply = info.get("reply")
+        if reply:
+            reply.deleteLater()
 
-    def _get_filename_from_url(self, url_str):
-        url = QUrl(url_str)
-        path = url.path()
-        if path:
-            return path.split('/')[-1]
-        return "download"
-
+    # QML interface methods
     @Slot(QUrl, result=float)
     def getDownloadProgress(self, url):
         url_str = url.toString()
         if url_str in self._active_downloads:
-            bytesReceived = self._active_downloads[url_str]["bytes_received"]
+            bytes_received = self._active_downloads[url_str]["bytes_received"]
             reply = self._active_downloads[url_str].get("reply")
-            bytesTotal = reply.header(QNetworkRequest.ContentLengthHeader) if reply else 0
-            return (bytesReceived / bytesTotal * 100) if bytesTotal > 0 else 0
+            bytes_total = reply.header(QNetworkRequest.ContentLengthHeader) if reply else 0
+            return (bytes_received / bytes_total * 100) if bytes_total > 0 else 0
         return 0
 
     @Slot(QUrl, result=float)
     def getDownloadSpeed(self, url):
         url_str = url.toString()
         if url_str in self._active_downloads:
-            download_info = self._active_downloads[url_str]
-            elapsed = download_info["timer"].elapsed() / 1000.0  # 转换为秒
-            return download_info["bytes_received"] / max(0.001, elapsed)
+            info = self._active_downloads[url_str]
+            elapsed = info["timer"].elapsed() / 1000.0
+            return info["bytes_received"] / max(0.001, elapsed)
         return 0
 
     @Slot(QUrl, result=str)
@@ -344,3 +327,10 @@ class DownloadingPage(QObject):
     @Slot(result=list)
     def getActiveDownloads(self):
         return list(self._active_downloads.keys())
+    
+    @Slot(QUrl, result=bool)
+    def isUrlInHistory(self, url):
+        url_str = url.toString()
+        if not hasattr(self, '_settings') or not hasattr(self._settings, 'downloadHistory'):
+            return False
+        return any(record['url'] == url_str for record in self._settings.downloadHistory.history)

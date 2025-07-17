@@ -11,7 +11,7 @@ ColumnLayout {
         Layout.fillWidth: true
         Layout.fillHeight: true
         spacing: 5
-        model: downloadedPageBackend.getDownloadsList()
+        model: downloadedPageBackend.downloads
 
         delegate: Frame {
             width: historyList.width
@@ -98,7 +98,7 @@ ColumnLayout {
     Connections {
         target: downloadedPageBackend
         function onDownloadsChanged() {
-            historyList.model = downloadedPageBackend.getDownloadsList()
+            historyList.model = downloadedPageBackend.downloads
         }
     }
 }
