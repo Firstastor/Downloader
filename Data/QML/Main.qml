@@ -14,11 +14,16 @@ Window {
     flags: Qt.FramelessWindowHint | Qt.Window 
 
     Rectangle {
-        id : background
+        id: background
         anchors.fill: parent
         color: palette.window
-        radius: mainWindow.visibility === Window.FullScreen ? 0 : 20
+        radius: mainWindow.visibility === Window.Maximized ? 0 : 20
         
+        // 添加圆角变化动画
+        Behavior on radius {
+            NumberAnimation { duration: 100 }
+        }
+
         TitleBar {
             id: titleBar
             anchors.fill: parent

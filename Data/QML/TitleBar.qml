@@ -6,7 +6,7 @@ import QtQuick.Window
 
 // 系统栏
 Rectangle {
-
+    
     MouseArea {
         anchors.fill: parent
         property point clickPos: "0,0"

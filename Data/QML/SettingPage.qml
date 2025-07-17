@@ -12,7 +12,7 @@ Page {
     Frame {
         anchors.fill: parent
         padding: 0
-
+        
         ColumnLayout {
             anchors.fill: parent
             spacing: 10

@@ -1,6 +1,5 @@
-from PySide6.QtCore import QObject, Signal, Property, Slot, QUrl, QFile, QIODevice, QDir, QFileInfo, QTimer
+from PySide6.QtCore import QObject, Signal, Property, Slot, QUrl, QFile, QIODevice, QDir, QFileInfo, QTimer, QElapsedTimer
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
-import time
 
 class DownloadingPage(QObject):
     # 信号定义
@@ -103,12 +102,15 @@ class DownloadingPage(QObject):
             request.setAttribute(QNetworkRequest.Http2AllowedAttribute, True)
             request.setAttribute(QNetworkRequest.Http2CleartextAllowedAttribute, True)
             
+            timer = QElapsedTimer()
+            timer.start()
+            
             self._active_downloads[url_str] = {
                 "filename": safe_name,
                 "save_path": final_path,
                 "temp_path": temp_path,
                 "file": file,
-                "start_time": time.time(),
+                "timer": timer,
                 "bytes_received": 0,
                 "reply": None,
                 "is_cancelled": False
@@ -148,7 +150,7 @@ class DownloadingPage(QObject):
             return
             
         download_info = self._active_downloads[url_str]
-        elapsed = time.time() - download_info["start_time"]
+        elapsed = download_info["timer"].elapsed() / 1000.0  # 转换为秒
         speed = bytesReceived / max(0.001, elapsed)
         progress = (bytesReceived / bytesTotal * 100) if bytesTotal > 0 else 0
         progress = max(0, min(100, progress))
@@ -330,7 +332,7 @@ class DownloadingPage(QObject):
         url_str = url.toString()
         if url_str in self._active_downloads:
             download_info = self._active_downloads[url_str]
-            elapsed = time.time() - download_info["start_time"]
+            elapsed = download_info["timer"].elapsed() / 1000.0  # 转换为秒
             return download_info["bytes_received"] / max(0.001, elapsed)
         return 0
 

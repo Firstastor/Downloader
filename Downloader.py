@@ -12,7 +12,7 @@ if __name__ == "__main__":
 
     settings = Settings()
     downloadingPage = DownloadingPage(settings)
-    downloadedPage = DownloadedPage()
+    downloadedPage = DownloadedPage(settings)
     
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("settingsBackend", settings)
@@ -23,10 +23,5 @@ if __name__ == "__main__":
     
     if not engine.rootObjects():
         sys.exit(-1)
-    
-    def shutdown():
-        settings.cleanup()
-        engine.deleteLater()
 
-    app.aboutToQuit.connect(shutdown)
     sys.exit(app.exec())
