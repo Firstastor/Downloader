@@ -1,78 +1,71 @@
-from PySide6.QtCore import QObject, Signal, Property, QUrl, Slot
-import os
-import re
-import sys
-import configparser
-from pathlib import Path
+from PySide6.QtCore import QCoreApplication, QObject, Signal, Property, QUrl, Slot, QDir, QStandardPaths, QFile, QFileInfo, QTextStream, QRegularExpression
 
 class Settings(QObject):
     def __init__(self):
         super().__init__()
         # 获取应用程序根目录路径
-        if getattr(sys, 'frozen', False):
-            # 打包后的应用（如 PyInstaller）
-            app_dir = Path(sys.executable).parent
-        else:
-            # 开发环境（直接运行 Python 脚本）
-            app_dir = Path(__file__).parent.parent.parent
+        app_dir = QCoreApplication.applicationDirPath()
+        
+        # 配置文件路径改为应用程序根目录下的 Downloader.ini
+        self.config_file = f"{app_dir}/Downloader.ini"
+        self._load_config()  # 加载配置
 
         # 配置文件路径改为应用程序根目录下的 Downloader.ini
-        self.config_file = str(app_dir / "Downloader.ini")
+        self.config_file = f"{app_dir}/Downloader.ini"
         self._load_config()  # 加载配置
 
     def _load_config(self):
         """从配置文件加载设置"""
-        config = configparser.ConfigParser()
-        
-        # 如果配置文件不存在，则创建默认配置
-        if not os.path.exists(self.config_file):
+        config = QFile(self.config_file)
+        if not config.exists():
             self._set_default_values()
             self._save_config()
             return
 
-        try:
-            config.read(self.config_file)
-            # 读取配置值（带默认值回退）
-            self._download_folder = config.get(
-                "DEFAULT", "download_folder", 
-                fallback=str(Path.home() / "Downloads")
-            )
-            self._speed_limit = config.getint("DEFAULT", "speed_limit", fallback=0)
-            self._concurrent_downloads = config.getint("DEFAULT", "concurrent_downloads", fallback=5)
-            self._max_threads_per_download = config.getint("DEFAULT", "max_threads_per_download", fallback=32)
-        except Exception as e:
-            print(f"Error loading config: {e}")
+        if not config.open(QFile.ReadOnly | QFile.Text):
+            print(f"Error opening config file for reading: {config.errorString()}")
             self._set_default_values()
+            return
+
+        stream = QTextStream(config)
+        self._download_folder = self._read_config_value(stream, "download_folder", QStandardPaths.writableLocation(QStandardPaths.DownloadLocation))
+        self._speed_limit = int(self._read_config_value(stream, "speed_limit", "0"))
+        self._concurrent_downloads = int(self._read_config_value(stream, "concurrent_downloads", "5"))
+        self._max_threads_per_download = int(self._read_config_value(stream, "max_threads_per_download", "32"))
+        config.close()
+
+    def _read_config_value(self, stream, key, default):
+        regex = QRegularExpression(f"^{key}=(.*)$")
+        while not stream.atEnd():
+            line = stream.readLine()
+            match = regex.match(line)
+            if match.hasMatch():
+                return match.captured(1)
+        return default
 
     def _set_default_values(self):
         """设置默认值"""
-        self._download_folder = str(Path.home() / "Downloads")
+        self._download_folder = QStandardPaths.writableLocation(QStandardPaths.DownloadLocation)
         self._speed_limit = 0
         self._concurrent_downloads = 5
         self._max_threads_per_download = 32
 
     def _save_config(self):
         """保存当前设置到配置文件"""
-        try:
-            config = configparser.ConfigParser()
-            config["DEFAULT"] = {
-                "download_folder": self._download_folder,
-                "speed_limit": str(self._speed_limit),
-                "concurrent_downloads": str(self._concurrent_downloads),
-                "max_threads_per_download": str(self._max_threads_per_download)
-            }
-            
-            # 确保配置目录存在
-            os.makedirs(os.path.dirname(self.config_file), exist_ok=True)
-            
-            with open(self.config_file, "w") as f:
-                config.write(f)
-        except Exception as e:
-            print(f"Error saving config: {e}")
+        config = QFile(self.config_file)
+        if not config.open(QFile.WriteOnly | QFile.Text):
+            print(f"Error opening config file for writing: {config.errorString()}")
+            return
+
+        stream = QTextStream(config)
+        stream << f"download_folder={self._download_folder}\n"
+        stream << f"speed_limit={self._speed_limit}\n"
+        stream << f"concurrent_downloads={self._concurrent_downloads}\n"
+        stream << f"max_threads_per_download={self._max_threads_per_download}\n"
+        config.close()
 
     # -------------------- 信号定义 --------------------
     downloadFolderChanged = Signal(str)
-    speedLimitChanged = Signal(int)
     concurrentDownloadsChanged = Signal(int)
     maxThreadsPerDownloadChanged = Signal(int)
 
@@ -86,22 +79,9 @@ class Settings(QObject):
     def downloadFolder(self, value):
         if value.startswith("file:///"):
             value = value[8:]
-        normalized_path = os.path.normpath(value)
-        if self._download_folder != normalized_path:
-            self._download_folder = normalized_path
-            self.downloadFolderChanged.emit(normalized_path)
-            self._save_config()
-
-    # Speed Limit (KB/s)
-    @Property(int, notify=speedLimitChanged)
-    def speedLimit(self):
-        return self._speed_limit
-
-    @speedLimit.setter
-    def speedLimit(self, value):
-        if self._speed_limit != value:
-            self._speed_limit = value
-            self.speedLimitChanged.emit(value)
+        if self._download_folder != value:
+            self._download_folder = value
+            self.downloadFolderChanged.emit(value)
             self._save_config()
 
     # Concurrent Downloads
@@ -137,32 +117,29 @@ class Settings(QObject):
     @Slot(str, result=bool)
     def isValidPath(self, path):
         """验证路径是否有效且存在"""
-        try:
-            if not path:
-                return False
-                
-            if path.startswith("file:///"):
-                path = path[8:]
-            
-            normalized_path = os.path.normpath(path)
-            
-            # Windows 路径验证
-            if os.name == 'nt':
-                if not re.match(r'^(?:[a-zA-Z]:\\|\\\\[^\\/:*?"<>|]+\\[^\\/:*?"<>|]+)', normalized_path):
-                    return False
-                illegal_chars = r'<>"|?*'
-                if any(char in normalized_path for char in illegal_chars):
-                    return False
-                    
-            # 检查路径是否存在且可写
-            if not os.path.exists(normalized_path):
-                return False
-                
-            return os.path.isdir(normalized_path) and os.access(normalized_path, os.W_OK)
-        except Exception as e:
-            print(f"Path validation error: {e}")
+        if not path:
             return False
+
+        if path.startswith("file:///"):
+            path = path[8:]
+
+        # 使用 QDir.separator() 获取当前系统的路径分隔符
+        from PySide6.QtCore import QDir, QFileInfo, QFile
         
+        # Windows 路径验证
+        if QDir.separator() == '\\':
+            # 修正正则表达式：允许驱动器号后的冒号，只禁止文件名中的冒号
+            regex = QRegularExpression(r'^(?:[a-zA-Z]:[\\/]|\\\\[^\\/*?"<>|]+[\\/][^\\/:*?"<>|]+)')
+            if not regex.match(path).hasMatch():
+                return False
+            illegal_chars = r'<>"|?*'  # 文件名中禁止的字符，不包括冒号
+            if any(char in path for char in illegal_chars):
+                return False
+
+        # 使用 QFileInfo 检查路径属性
+        file_info = QFileInfo(path)
+        return file_info.exists() and file_info.isDir() and file_info.permissions() & QFile.WriteUser
+
     def cleanup(self):
         # 清理资源
         pass

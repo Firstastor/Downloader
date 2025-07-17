@@ -53,62 +53,8 @@ GroupBox {
             }
         }
 
-        // 网络设置部分
-        GridLayout {
-            columns: 2
-            columnSpacing: 10
-            rowSpacing: 10
-            Layout.fillWidth: true
-
-            Label {
-                text: "Download Speed Limit:"
-                Layout.alignment: Qt.AlignRight
-            }
-
-            RowLayout {
-                SpinBox {
-                    id: speedLimitInput
-                    from: 0
-                    to: 1024000
-                    value: settingsBackend.speedLimit
-                    onValueModified: settingsBackend.speedLimit = value
-                    editable: true
-                    stepSize: 100
-                    Layout.fillWidth: true
-                    Keys.onReturnPressed: focus = false
-                    Keys.onEnterPressed: focus = false
-
-                    // 自定义显示文本
-                    property string prefix: "Max Speed: "
-                    property string suffix: " KB"
-                    
-                    validator: IntValidator {
-                        bottom: speedLimitInput.from
-                        top: speedLimitInput.to
-                    }
-
-                    textFromValue: function(value) {
-                        return value === 0 ? "Unlimited" : (prefix + value + suffix)
-                    }
-
-                    valueFromText: function(text) {
-                        if (text === "Unlimited") return 0
-                        return parseInt(text.replace(prefix, "").replace(suffix, ""))
-                    }
-
-                    onActiveFocusChanged: {
-                        if (activeFocus) {
-                            const rawValue = value === 0 ? "" : value.toString()
-                            contentItem.text = rawValue
-                        } else {
-                            contentItem.text = textFromValue(value)
-                        }
-                    }
-                }
-            }
-        }
         
-        // 并发下载设置部分（使用 Slider）
+        // 并发下载设置部分
         GridLayout {
             columns: 2
             columnSpacing: 10
@@ -137,7 +83,7 @@ GroupBox {
             }
         }
 
-        // 单文件下载线程数设置（使用 Slider）
+        // 单文件下载线程数设置
         GridLayout {
             columns: 2
             columnSpacing: 10

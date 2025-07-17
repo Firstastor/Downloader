@@ -1,59 +1,49 @@
-import os
-import re
+from PySide6.QtCore import QObject, Signal, Property, Slot, QUrl, QFile, QIODevice, QDir, QFileInfo, QTimer
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 import time
-from pathlib import Path
-from urllib.parse import urlparse, unquote
-from PySide6.QtCore import QObject, Signal, Property, Slot, QUrl
-import requests
-from concurrent.futures import ThreadPoolExecutor
 
 class DownloadingPage(QObject):
     # 信号定义
     downloadStarted = Signal(str, str, str)  # url, filename, save_path
-    downloadProgress = Signal(str, float, float)  # url, progress, speed (bytes/sec)
+    downloadProgress = Signal(str, float, float)  # url, progress, speed
     downloadCompleted = Signal(str, str)  # url, save_path
     downloadError = Signal(str, str)  # url, error_message
     downloadCancelled = Signal(str)  # url
 
     def __init__(self, settings, parent=None):
         super().__init__(parent)
-        self._settings = settings 
+        self._settings = settings
         self._active_downloads = {}
-        self.thread_pool = ThreadPoolExecutor(max_workers=64)
-        self.session = requests.Session()
+        self._network_manager = QNetworkAccessManager(self)
 
     @Property(str)
     def downloadFolder(self):
-        """从settings获取下载文件夹"""
         return self._settings.downloadFolder
 
+    def _is_valid_url(self, url_str):
+        url = QUrl(url_str)
+        return url.isValid() and url.scheme() in ('http', 'https') and url.host()
+
     def _ensure_directory_exists(self, path):
-        """确保目标目录存在"""
-        try:
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
-            return True
-        except Exception as e:
-            self.downloadError.emit("", f"创建目录失败: {str(e)}")
-            return False
+        dir_info = QFileInfo(path)
+        parent_dir = dir_info.dir()
+        return parent_dir.mkpath(".")
 
     def _get_safe_filename(self, filename):
-        """生成安全的文件名"""
         if not filename:
             return "download"
         
-        try:
-            filename = unquote(filename)
-        except:
-            pass
+        decoded = QUrl.fromPercentEncoding(filename.encode())
         
         keepchars = (' ', '-', '_', '.', '(', ')', '[', ']')
-        safe_name = "".join(
-            c for c in filename 
-            if c.isalnum() or c in keepchars or '\u4e00' <= c <= '\u9fff'
-        ).strip()
+        safe_name = ""
+        for c in decoded:
+            if c.isalnum() or c in keepchars or ('\u4e00' <= c <= '\u9fff'):
+                safe_name += c
         
         safe_name = ' '.join(safe_name.split())
-        safe_name = safe_name[:255]
+        if len(safe_name) > 255:
+            safe_name = safe_name[:255]
         
         if safe_name.startswith('.'):
             safe_name = "download" + safe_name
@@ -61,208 +51,294 @@ class DownloadingPage(QObject):
         return safe_name
 
     def _get_available_filename(self, desired_path):
-        """处理文件名冲突"""
-        if not os.path.exists(desired_path):
+        file_info = QFileInfo(desired_path)
+        if not file_info.exists():
             return desired_path
             
-        directory, filename = os.path.split(desired_path)
-        base, ext = os.path.splitext(filename)
-        counter = 1
+        dir_path = file_info.dir()
+        base_name = file_info.completeBaseName()
+        suffix = file_info.suffix()
         
+        counter = 1
         while True:
-            new_path = os.path.join(directory, f"{base}_{counter}{ext}")
-            if not os.path.exists(new_path):
+            new_name = f"{base_name}_{counter}.{suffix}" if suffix else f"{base_name}_{counter}"
+            new_path = dir_path.filePath(new_name)
+            if not QFileInfo(new_path).exists():
                 return new_path
             counter += 1
 
-    def _get_filename_from_response(self, response):
-        """从响应头获取文件名"""
-        content_disp = response.headers.get('content-disposition', '')
-        if 'filename=' in content_disp:
-            match = re.search(r'filename=["\']?(.+?)["\']?$', content_disp)
-            if match:
-                return match.group(1)
-        return None
-
-    def _get_filename_from_url(self, url):
-        """从URL提取文件名"""
-        try:
-            path = urlparse(url).path
-            filename = os.path.basename(path)
-            return filename if filename else "download"
-        except:
-            return "download"
-
-    def _download_file(self, url, save_path):
-        """执行下载任务"""
-        temp_path = f"{save_path}.downloading"
-        final_path = None
-        downloaded = 0
-        total_size = 0
-        start_time = time.time()
-        
-        try:
-            # 检查是否已被取消
-            if url not in self._active_downloads:
-                raise Exception("Download cancelled before start")
-
-            with self.session.get(url, stream=True, timeout=(30, 60)) as response:
-                response.raise_for_status()
-                
-                # 再次检查是否已被取消
-                if url not in self._active_downloads:
-                    raise Exception("Download cancelled during connection")
-
-                # 获取文件信息
-                total_size = int(response.headers.get('content-length', 0))
-                filename = (
-                    self._get_filename_from_response(response) or 
-                    self._get_filename_from_url(response.url)
-                )
-                safe_name = self._get_safe_filename(filename)
-                desired_path = os.path.join(self.downloadFolder, safe_name)  # 使用settings中的下载目录
-                final_path = self._get_available_filename(desired_path)
-                temp_path = f"{final_path}.downloading"
-                
-                # 确保目录存在
-                if not self._ensure_directory_exists(final_path):
-                    raise Exception("Failed to create directory")
-
-                # 开始下载
-                with open(temp_path, 'wb') as f:
-                    for chunk in response.iter_content(chunk_size=8192):
-                        # 检查是否已被取消
-                        if url not in self._active_downloads:
-                            raise Exception("Download cancelled by user")
-                        
-                        # 检查是否为空块（连接结束）
-                        if not chunk:
-                            if total_size > 0 and downloaded < total_size:
-                                raise Exception("Incomplete download: connection closed prematurely")
-                            break
-                            
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        
-                        # 计算进度和速度
-                        elapsed = time.time() - start_time
-                        progress = (downloaded / total_size * 100) if total_size > 0 else (
-                            (downloaded / (downloaded + 1)) * 100)  # 避免除以零
-                        speed = downloaded / max(0.001, elapsed)
-                        self.downloadProgress.emit(url, progress, speed)
-                
-                # 验证文件完整性
-                if total_size > 0 and os.path.getsize(temp_path) != total_size:
-                    raise Exception(f"Size mismatch: expected {total_size}, got {os.path.getsize(temp_path)}")
-                
-                # 重命名为最终文件名
-                os.replace(temp_path, final_path)
-                
-                # 发送完成信号
-                self.downloadCompleted.emit(url, final_path)
-                
-        except Exception as e:
-            error_msg = str(e)
-            if "cancelled" in error_msg.lower():
-                self.downloadCancelled.emit(url)
-            else:
-                self.downloadError.emit(url, f"下载错误: {error_msg}")
-            raise  # 重新抛出异常以便线程池处理
-        finally:
-            self._active_downloads.pop(url, None)
-            if os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except:
-                    pass
-
-    @Slot(str)
+    @Slot(QUrl)
     def startDownload(self, url):
-        """QML调用的下载接口"""
-        if not url:
-            self.downloadError.emit("", "URL不能为空")
+        url_str = url.toString()
+        if not url_str:
+            self.downloadError.emit("", "URL cannot be empty")
             return
 
-        if url in self._active_downloads:
-            self.downloadError.emit(url, "下载已在进行中")
+        if not self._is_valid_url(url_str):
+            self.downloadError.emit(url_str, "Invalid URL")
+            return
+
+        if url_str in self._active_downloads:
+            self.downloadError.emit(url_str, "Download already in progress")
             return
 
         try:
-            # 生成初始路径
-            filename = self._get_filename_from_url(url)
+            filename = self._get_filename_from_url(url_str)
             safe_name = self._get_safe_filename(filename)
-            save_path = os.path.join(self.downloadFolder, safe_name)  # 使用settings中的下载目录
             
-            # 添加到活动下载
-            self._active_downloads[url] = {
+            save_dir = QDir(self.downloadFolder)
+            save_path = save_dir.filePath(safe_name)
+            final_path = self._get_available_filename(save_path)
+            temp_path = f"{final_path}.downloading"
+            
+            if not self._ensure_directory_exists(final_path):
+                raise Exception("Cannot create directory")
+            
+            file = QFile(temp_path)
+            if not file.open(QIODevice.WriteOnly):
+                raise Exception("Cannot create temp file")
+            
+            request = QNetworkRequest(QUrl(url_str))
+            # 正确设置HTTP/2属性
+            request.setAttribute(QNetworkRequest.Http2AllowedAttribute, True)
+            request.setAttribute(QNetworkRequest.Http2CleartextAllowedAttribute, True)
+            
+            self._active_downloads[url_str] = {
                 "filename": safe_name,
-                "save_path": save_path,
-                "progress": 0,
-                "speed": 0,
-                "future": None
+                "save_path": final_path,
+                "temp_path": temp_path,
+                "file": file,
+                "start_time": time.time(),
+                "bytes_received": 0,
+                "reply": None,
+                "is_cancelled": False
             }
             
-            # 开始下载并存储future
-            self.downloadStarted.emit(url, safe_name, save_path)
-            future = self.thread_pool.submit(self._download_file, url, save_path)
-            self._active_downloads[url]["future"] = future
+            self.downloadStarted.emit(url_str, safe_name, final_path)
+            reply = self._network_manager.get(request)
             
-            # 添加异常回调
-            future.add_done_callback(lambda f: self._handle_download_future(url, f))
+            reply.downloadProgress.connect(
+                lambda br, bt, url=url_str: self._handle_download_progress(url, br, bt)
+            )
+            reply.finished.connect(
+                lambda url=url_str, reply=reply: self._handle_download_finished(url, reply)
+            )
+            reply.errorOccurred.connect(
+                lambda error, url=url_str, reply=reply: self._handle_download_error(url, reply, error)
+            )
+            
+            self._active_downloads[url_str]["reply"] = reply
+            reply.readyRead.connect(lambda: self._write_to_file(url_str, reply, file))
             
         except Exception as e:
-            self.downloadError.emit(url, f"下载失败: {str(e)}")
-            self._active_downloads.pop(url, None)
+            self.downloadError.emit(url_str, f"Download failed: {str(e)}")
+            self._cleanup_download(url_str)
 
-    def _handle_download_future(self, url, future):
-        """处理下载完成的future"""
-        if url not in self._active_downloads:
+    def _write_to_file(self, url_str, reply, file):
+        if url_str not in self._active_downloads or self._active_downloads[url_str]["is_cancelled"]:
+            return
+            
+        data = reply.readAll()
+        if data.size() > 0:
+            file.write(data)
+            self._active_downloads[url_str]["bytes_received"] += data.size()
+
+    def _handle_download_progress(self, url_str, bytesReceived, bytesTotal):
+        if url_str not in self._active_downloads or self._active_downloads[url_str]["is_cancelled"]:
+            return
+            
+        download_info = self._active_downloads[url_str]
+        elapsed = time.time() - download_info["start_time"]
+        speed = bytesReceived / max(0.001, elapsed)
+        progress = (bytesReceived / bytesTotal * 100) if bytesTotal > 0 else 0
+        progress = max(0, min(100, progress))
+        
+        self.downloadProgress.emit(url_str, progress, speed)
+
+    def _handle_download_finished(self, url_str, reply):
+        if url_str not in self._active_downloads:
+            return
+            
+        download_info = self._active_downloads[url_str]
+        
+        if download_info["is_cancelled"]:
             return
             
         try:
-            future.result()  # 如果出错会抛出异常
+            if reply.error() != QNetworkReply.NoError:
+                if reply.error() != QNetworkReply.OperationCanceledError:
+                    self.downloadError.emit(url_str, reply.errorString())
+                return
+                
+            download_info["file"].flush()
+            download_info["file"].close()
+            
+            temp_path = download_info["temp_path"]
+            final_path = download_info["save_path"]
+            
+            temp_file = QFile(temp_path)
+            if temp_file.exists():
+                final_file = QFile(final_path)
+                if final_file.exists():
+                    final_file.remove()
+                if not temp_file.rename(final_path):
+                    raise Exception("Rename failed")
+            
+            self.downloadCompleted.emit(url_str, final_path)
+            
         except Exception as e:
-            if "cancelled" not in str(e).lower():
-                self.downloadError.emit(url, f"下载失败: {str(e)}")
+            self.downloadError.emit(url_str, f"Download completion error: {str(e)}")
+        finally:
+            self._cleanup_download(url_str)
 
-    @Slot(str)
+    def _handle_download_error(self, url_str, reply, error):
+        if url_str not in self._active_downloads:
+            return
+            
+        if error == QNetworkReply.OperationCanceledError:
+            return
+                
+        self.downloadError.emit(url_str, reply.errorString())
+        self._cleanup_download(url_str)
+        
+    def _safe_abort_reply(self, reply, url_str):
+        try:
+            if reply.isRunning():
+                reply.abort()
+            self._cleanup_reply(reply, url_str)
+        except Exception as e:
+            self.downloadError.emit(url_str, f"Error aborting reply: {str(e)}")
+
+    def _cleanup_reply(self, reply, url_str):
+        try:
+            reply.deleteLater()
+        except Exception as e:
+            self.downloadError.emit(url_str, f"Error deleting reply: {str(e)}")
+
+    @Slot(QUrl)
     def cancelDownload(self, url):
-        """取消下载"""
-        if url in self._active_downloads:
-            # 取消future
-            future = self._active_downloads[url].get("future")
-            if future and not future.done():
-                future.cancel()
-            
-            # 删除临时文件
-            save_path = self._active_downloads[url]["save_path"]
-            temp_path = f"{save_path}.downloading"
-            if os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except:
-                    pass
-            
-            # 发送取消信号
-            self.downloadCancelled.emit(url)
-            self._active_downloads.pop(url, None)
+        url_str = url.toString()
+        if url_str not in self._active_downloads:
+            return
 
-    @Slot(str, result=float)
+        download_info = self._active_downloads[url_str]
+        download_info["is_cancelled"] = True
+
+        # 1. 暂停数据接收
+        if "reply" in download_info and download_info["reply"]:
+            reply = download_info["reply"]
+            try:
+                # 暂停接收数据
+                reply.setReadBufferSize(0)
+            except Exception as e:
+                self.downloadError.emit(url_str, f"Error pausing reply: {str(e)}")
+
+        # 2. 断开所有信号连接
+        if "reply" in download_info and download_info["reply"]:
+            reply = download_info["reply"]
+            try:
+                reply.downloadProgress.disconnect()
+                reply.finished.disconnect()
+                reply.errorOccurred.disconnect()
+                reply.readyRead.disconnect()
+            except TypeError:
+                # 处理信号未连接的情况
+                pass
+            except Exception as e:
+                self.downloadError.emit(url_str, f"Error disconnecting signals: {str(e)}")
+
+        # 3. 中止网络请求
+        if "reply" in download_info and download_info["reply"]:
+            reply = download_info["reply"]
+            try:
+                if reply.isRunning():
+                    # 使用单次定时器确保在事件循环中安全中止
+                    QTimer.singleShot(50, lambda: self._safe_abort_reply(reply, url_str))
+                else:
+                    self._cleanup_reply(reply, url_str)
+            except Exception as e:
+                self.downloadError.emit(url_str, f"Error handling reply: {str(e)}")
+
+        # 4. 关闭并删除临时文件
+        if "file" in download_info:
+            try:
+                if download_info["file"].isOpen():
+                    download_info["file"].close()
+                if "temp_path" in download_info:
+                    temp_file = QFile(download_info["temp_path"])
+                    if temp_file.exists():
+                        temp_file.remove()
+            except Exception as e:
+                self.downloadError.emit(url_str, f"Error closing or removing temp file: {str(e)}")
+
+        # 5. 清理网络管理器缓存
+        self._network_manager.clearAccessCache()
+        
+        # 6. 发送信号并清理记录
+        self.downloadCancelled.emit(url_str)
+        self._active_downloads.pop(url_str, None)
+
+    def _cleanup_download(self, url_str):
+        if url_str not in self._active_downloads:
+            return
+            
+        download_info = self._active_downloads.pop(url_str, None)
+        if not download_info:
+            return
+
+        # 清理文件资源
+        if "file" in download_info:
+            try:
+                if download_info["file"].isOpen():
+                    download_info["file"].close()
+                if not download_info.get("is_cancelled", False) and "temp_path" in download_info:
+                    temp_file = QFile(download_info["temp_path"])
+                    if temp_file.exists():
+                        temp_file.remove()
+            except Exception as e:
+                self.downloadError.emit(url_str, f"Error cleaning up file: {str(e)}")
+
+        # 清理网络回复
+        if "reply" in download_info and download_info["reply"]:
+            reply = download_info["reply"]
+            try:
+                if reply.isRunning():
+                    reply.abort()
+                reply.deleteLater()
+            except Exception as e:
+                self.downloadError.emit(url_str, f"Error cleaning up reply: {str(e)}")
+
+    def _get_filename_from_url(self, url_str):
+        url = QUrl(url_str)
+        path = url.path()
+        if path:
+            return path.split('/')[-1]
+        return "download"
+
+    @Slot(QUrl, result=float)
     def getDownloadProgress(self, url):
-        """获取下载进度"""
-        return self._active_downloads.get(url, {}).get("progress", 0)
+        url_str = url.toString()
+        if url_str in self._active_downloads:
+            bytesReceived = self._active_downloads[url_str]["bytes_received"]
+            reply = self._active_downloads[url_str].get("reply")
+            bytesTotal = reply.header(QNetworkRequest.ContentLengthHeader) if reply else 0
+            return (bytesReceived / bytesTotal * 100) if bytesTotal > 0 else 0
+        return 0
 
-    @Slot(str, result=float)
+    @Slot(QUrl, result=float)
     def getDownloadSpeed(self, url):
-        """获取下载速度"""
-        return self._active_downloads.get(url, {}).get("speed", 0)
+        url_str = url.toString()
+        if url_str in self._active_downloads:
+            download_info = self._active_downloads[url_str]
+            elapsed = time.time() - download_info["start_time"]
+            return download_info["bytes_received"] / max(0.001, elapsed)
+        return 0
 
-    @Slot(str, result=str)
+    @Slot(QUrl, result=str)
     def getDownloadFilename(self, url):
-        """获取下载文件名"""
-        return self._active_downloads.get(url, {}).get("filename", "")
+        url_str = url.toString()
+        return self._active_downloads.get(url_str, {}).get("filename", "")
 
     @Slot(result=list)
     def getActiveDownloads(self):
-        """获取活动下载列表"""
         return list(self._active_downloads.keys())

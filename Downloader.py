@@ -11,14 +11,14 @@ if __name__ == "__main__":
     app = QGuiApplication(sys.argv)
 
     settings = Settings()
-    engine = QQmlApplicationEngine()
     downloadingPage = DownloadingPage(settings)
     downloadedPage = DownloadedPage()
     
+    engine = QQmlApplicationEngine()
+    engine.rootContext().setContextProperty("settingsBackend", settings)
     engine.rootContext().setContextProperty("downloadingPageBackend", downloadingPage)
     engine.rootContext().setContextProperty("downloadedPageBackend", downloadedPage)
-    engine.rootContext().setContextProperty("settingsBackend", settings)
-
+    
     engine.load("Data/QML/Main.qml") 
     
     if not engine.rootObjects():
