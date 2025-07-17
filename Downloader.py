@@ -1,6 +1,6 @@
 import sys
 
-from PySide6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication, QIcon
 from PySide6.QtQml import QQmlApplicationEngine
 
 from Data.Code.DownloadingPage import DownloadingPage
@@ -9,7 +9,7 @@ from Data.Code.SettingPage import Settings
 
 if __name__ == "__main__":
     app = QGuiApplication(sys.argv)
-
+    app.setWindowIcon(QIcon("Data/Image/downloader.ico"))
     settings = Settings()
     downloadingPage = DownloadingPage(settings)
     downloadedPage = DownloadedPage(settings)
