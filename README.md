@@ -19,7 +19,7 @@ Downloader is a multi-functional download manager developed with PySide6 and Qt 
 ### Installation  
 Clone the repository:  
    ```bash
-   git clone https://github.com/Firstastor/Downloader.git
+   git clone https://github.com/Firstastor/Downloader
    ```
 
 
@@ -42,5 +42,5 @@ Downloader 是一款基于 PySide6 和 Qt Quick 开发的多功能下载管理�
 
 ### 安装指南  
    ```bash
-   git clone https://github.com/yourusername/Downloader.git
-   cd Downloader
+   git clone https://github.com/Firstastor/Downloader
+   ```
