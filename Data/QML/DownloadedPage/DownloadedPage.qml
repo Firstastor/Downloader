@@ -5,7 +5,6 @@ import QtQuick.Layouts
 import QtQuick.Window
 
 ColumnLayout {
-    // 下载历史列表
     ListView {
         id: historyList
         Layout.fillWidth: true
@@ -20,14 +19,12 @@ ColumnLayout {
             ColumnLayout {
                 width: parent.width
 
-                // 文件名
                 Label {
                     text: modelData.filename
                     elide: Text.ElideMiddle
                     Layout.fillWidth: true
                 }
 
-                // 操作按钮行
                 RowLayout {
                     Button {
                         text: "Open File"
@@ -36,7 +33,7 @@ ColumnLayout {
                             if (fileUrl.toString() !== "") {
                                 Qt.openUrlExternally(fileUrl)
                             } else {
-                                console.log("无法获取文件URL")
+                                console.log("Cannot get File URL")
                             }
                         }
                     }
@@ -48,7 +45,7 @@ ColumnLayout {
                             if (folderUrl.toString() !== "") {
                                 Qt.openUrlExternally(folderUrl)
                             } else {
-                                console.log("无法获取文件夹URL")
+                                console.log("Cannot get File Folder URL")
                             }
                         }
                     }
@@ -70,7 +67,6 @@ ColumnLayout {
         id: deleteDialog
     }
 
-    // 连接后端信号
     Connections {
         target: downloadedPageBackend
         function onDownloadsChanged() {

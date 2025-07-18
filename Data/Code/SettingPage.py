@@ -1,35 +1,36 @@
-from PySide6.QtCore import QCoreApplication, QObject, Signal, Property, QUrl, Slot, QDir, QStandardPaths, QFile, QFileInfo, QTextStream, QRegularExpression
+from PySide6.QtCore import QCoreApplication, QObject, Signal, Property, QUrl, Slot, QDir, QStandardPaths, QFile, QTextStream, QRegularExpression
+from .DownloadHistory import DownloadHistory
 
 class Settings(QObject):
     def __init__(self):
         super().__init__()
-        # 获取应用程序根目录路径
-        app_dir = QCoreApplication.applicationDirPath()
-        
-        # 配置文件路径改为应用程序根目录下的 Downloader.ini
-        self.config_file = f"{app_dir}/Downloader.ini"
-        self._load_config()  # 加载配置
+        appDir = QCoreApplication.applicationDirPath()
+        self.configFile = f"{appDir}/Downloader.ini"
+        self._downloadFolder = ""
+        self._concurrentDownloads = 0
+        self._maxThreadsPerDownload = 0
+        self.downloadHistory = DownloadHistory(self)
+        self.loadConfig()
 
-    def _load_config(self):
-        """从配置文件加载设置"""
-        config = QFile(self.config_file)
+    def loadConfig(self):
+        config = QFile(self.configFile)
         if not config.exists():
-            self._set_default_values()
-            self._saveConfig()
+            self.setDefaultValues()
+            self.saveConfig()
             return
 
         if not config.open(QFile.ReadOnly | QFile.Text):
             print(f"Error opening config file for reading: {config.errorString()}")
-            self._set_default_values()
+            self.setDefaultValues()
             return
 
         stream = QTextStream(config)
-        self._downloadFolder = self._read_config_value(stream, "download_folder", QStandardPaths.writableLocation(QStandardPaths.DownloadLocation))
-        self._concurrentDownloads = int(self._read_config_value(stream, "concurrentDownloads", "5"))
-        self._maxThreadsPerDownload = int(self._read_config_value(stream, "maxThreadsPerDownload", "32"))
+        self.downloadFolder = self.readConfigValue(stream, "download_folder", QStandardPaths.writableLocation(QStandardPaths.DownloadLocation))
+        self.concurrentDownloads = int(self.readConfigValue(stream, "concurrentDownloads", "5"))
+        self.maxThreadsPerDownload = int(self.readConfigValue(stream, "maxThreadsPerDownload", "32"))
         config.close()
 
-    def _read_config_value(self, stream, key, default):
+    def readConfigValue(self, stream, key, default):
         regex = QRegularExpression(f"^{key}=(.*)$")
         while not stream.atEnd():
             line = stream.readLine()
@@ -38,15 +39,13 @@ class Settings(QObject):
                 return match.captured(1)
         return default
 
-    def _set_default_values(self):
-        """设置默认值"""
-        self._downloadFolder = QStandardPaths.writableLocation(QStandardPaths.DownloadLocation)
-        self._concurrentDownloads = 5
-        self._maxThreadsPerDownload = 32
+    def setDefaultValues(self):
+        self.downloadFolder = QStandardPaths.writableLocation(QStandardPaths.DownloadLocation)
+        self.concurrentDownloads = 5
+        self.maxThreadsPerDownload = 32
 
-    def _saveConfig(self):
-        """保存当前设置到配置文件"""
-        config = QFile(self.config_file)
+    def saveConfig(self):
+        config = QFile(self.configFile)
         if not config.open(QFile.WriteOnly | QFile.Text):
             print(f"Error opening config file for writing: {config.errorString()}")
             return
@@ -57,13 +56,10 @@ class Settings(QObject):
         stream << f"maxThreadsPerDownload={self._maxThreadsPerDownload}\n"
         config.close()
 
-    # -------------------- 信号定义 --------------------
     downloadFolderChanged = Signal(str)
     concurrentDownloadsChanged = Signal(int)
     maxThreadsPerDownloadChanged = Signal(int)
 
-    # -------------------- 属性定义 --------------------
-    # Download Folder
     @Property(str, notify=downloadFolderChanged)
     def downloadFolder(self):
         return self._downloadFolder
@@ -75,9 +71,8 @@ class Settings(QObject):
         if self._downloadFolder != value:
             self._downloadFolder = value
             self.downloadFolderChanged.emit(value)
-            self._saveConfig()
+            self.saveConfig()
 
-    # Concurrent Downloads
     @Property(int, notify=concurrentDownloadsChanged)
     def concurrentDownloads(self):
         return self._concurrentDownloads
@@ -87,9 +82,8 @@ class Settings(QObject):
         if self._concurrentDownloads != value:
             self._concurrentDownloads = value
             self.concurrentDownloadsChanged.emit(value)
-            self._saveConfig()
+            self.saveConfig()
 
-    # Max Threads per Download
     @Property(int, notify=maxThreadsPerDownloadChanged)
     def maxThreadsPerDownload(self):
         return self._maxThreadsPerDownload
@@ -99,25 +93,21 @@ class Settings(QObject):
         if self._maxThreadsPerDownload != value:
             self._maxThreadsPerDownload = value
             self.maxThreadsPerDownloadChanged.emit(value)
-            self._saveConfig()
-
-    # -------------------- 方法定义 --------------------
+            self.saveConfig()
 
     @Slot(str, result=bool)
     def isValidPath(self, path):
-        """验证路径是否有效且存在"""
         if not path:
             return False
 
         if path.startswith("file:///"):
             path = path[8:]
         
-        # Windows 路径验证
         if QDir.separator() == '\\':
-            # 修正正则表达式：允许驱动器号后的冒号，只禁止文件名中的冒号
             regex = QRegularExpression(r'^(?:[a-zA-Z]:[\\/]|\\\\[^\\/*?"<>|]+[\\/][^\\/:*?"<>|]+)')
             if not regex.match(path).hasMatch():
                 return False
-            illegal_chars = r'<>"|?*'  # 文件名中禁止的字符，不包括冒号
-            if any(char in path for char in illegal_chars):
+            illegalChars = r'<>"|?*'
+            if any(char in path for char in illegalChars):
                 return False
+        return True

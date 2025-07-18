@@ -24,14 +24,17 @@ class DownloadHistory(QObject):
         if path and QDir(path).exists():
             self._downloadFolder = path
 
-    def addRecord(self, url, filename):
-        filePath = QDir(self._downloadFolder).filePath(filename)
+    def addRecord(self, url, filename, folder=None):
+        if not folder:
+            folder = self._downloadFolder
+        filePath = QDir(folder).filePath(filename)
         size = QFile(filePath).size() if QFile.exists(filePath) else 0
         if not any(d['url'] == url for d in self._history):
             self._history.append({
                 'url': url,
                 'filename': filename,
-                'filesize': size
+                'filesize': size,
+                'folder': folder
             })
             self._saveHistory()
 
@@ -39,19 +42,22 @@ class DownloadHistory(QObject):
         self._history = [d for d in self._history if d['url'] != url]
         self._saveHistory()
 
-    def getFileUrl(self, filename):
-        filePath = QDir(self._downloadFolder).filePath(filename)
+    def getFileUrl(self, filename, folder=None):
+        if not folder:
+            folder = self._downloadFolder
+        filePath = QDir(folder).filePath(filename)
         return QUrl.fromLocalFile(filePath) if QFile.exists(filePath) else QUrl()
 
-    def getFolderUrl(self, filename):
-        if not self._downloadFolder:
-            return QUrl()
-        filePath = QDir(self._downloadFolder).filePath(filename)
+    def getFolderUrl(self, filename, folder=None):
+        if not folder:
+            folder = self._downloadFolder
+        filePath = QDir(folder).filePath(filename)
         return QUrl.fromLocalFile(QFileInfo(filePath).absolutePath())
 
     def _ensureHistoryFile(self):
         if not QFile.exists(self._historyFile):
-            self._saveHistory([])
+            self._history = []
+            self._saveHistory()
         self._loadHistory()
 
     def _loadHistory(self):
@@ -66,3 +72,18 @@ class DownloadHistory(QObject):
         with open(self._historyFile, 'w', encoding='utf-8') as f:
             json.dump(self._history, f, indent=4, ensure_ascii=False)
         self.historyChanged.emit()
+
+    def isUrlValid(self, url):
+        """Check if URL exists in history AND file still exists"""
+        url = url.strip().lower()
+        for record in self._history:
+            if record['url'].lower() == url:
+                file_path = QDir(record.get('folder', self._downloadFolder)).filePath(record['filename'])
+                return QFile.exists(file_path)
+        return False
+
+    def cleanupInvalidEntries(self):
+        """Remove history entries where files don't exist"""
+        self._history = [record for record in self._history if 
+                        QFile.exists(QDir(record.get('folder', self._downloadFolder)).filePath(record['filename']))]
+        self._saveHistory()

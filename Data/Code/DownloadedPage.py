@@ -21,18 +21,18 @@ class DownloadedPage(QObject):
     def downloadFolder(self, path):
         self._history.setDownloadFolder(path)
 
-    @Slot(str, str)
-    def addDownload(self, url, filename):
-        self._history.addRecord(url, filename)
+    @Slot(str, str, str)
+    def addDownload(self, url, filename, folder=None):
+        self._history.addRecord(url, filename, folder)
 
     @Slot(str)
     def removeDownload(self, url):
         self._history.removeRecord(url)
 
-    @Slot(str, result=QUrl)
-    def getFileUrl(self, filename):
-        return self._history.getFileUrl(filename)
+    @Slot(str, str, result=QUrl)
+    def getFileUrl(self, filename, folder=None):
+        return self._history.getFileUrl(filename, folder)
 
-    @Slot(str, result=QUrl)
-    def getFolderUrl(self, filename):
-        return self._history.getFolderUrl(filename)
+    @Slot(str, str, result=QUrl)
+    def getFolderUrl(self, filename, folder=None):
+        return self._history.getFolderUrl(filename, folder)

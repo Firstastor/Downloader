@@ -30,7 +30,7 @@ Page {
                 
                 Loader {
                     id: downloadingLoader
-                    source: "DownloadingPage.qml"
+                    source: "DownloadingPage/DownloadingPage.qml"
                     active: true
                 }
 

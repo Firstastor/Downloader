@@ -5,11 +5,13 @@ import QtQuick.Dialogs
 import QtQuick.Layouts
 
 GroupBox {
+
+    property bool backendAvailable: settingsBackend !== null
+
     ColumnLayout {
         width: parent.width
         spacing: 15
 
-        // 下载目录设置部分
         GridLayout {
             columns: 2
             columnSpacing: 10
@@ -25,36 +27,35 @@ GroupBox {
                 Layout.fillWidth: true
                 spacing: 10
 
-            TextField {
-                id: downloadFolderInput
-                Layout.fillWidth: true
-                text: settingsBackend.downloadFolder
-                placeholderText: "Enter download folder path (e.g. C:\\Downloads)"
-                
-                // 编辑完成时验证路径
-                onEditingFinished: {
-                    if (settingsBackend.isValidPath(text)) {
-                        settingsBackend.downloadFolder = text
-                    } else {
-                        text = settingsBackend.downloadFolder
-                        invalidPathToast.text = "Invalid path! Contains illegal characters or format"
-                        invalidPathToast.open()
+                TextField {
+                    id: downloadFolderInput
+                    Layout.fillWidth: true
+                    text: backendAvailable ? settingsBackend.downloadFolder : ""
+                    placeholderText: "Enter download folder path (e.g. C:\\Downloads)"
+                    enabled: backendAvailable
+                    
+                    onEditingFinished: {
+                        if (backendAvailable && settingsBackend.isValidPath(text)) {
+                            settingsBackend.downloadFolder = text
+                        } else {
+                            text = backendAvailable ? settingsBackend.downloadFolder : ""
+                            invalidPathToast.text = "Invalid path! Contains illegal characters or format"
+                            invalidPathToast.open()
+                        }
                     }
+                    
+                    Keys.onReturnPressed: focus = false
+                    Keys.onEnterPressed: focus = false
                 }
-                
-                Keys.onReturnPressed: focus = false
-                Keys.onEnterPressed: focus = false
-            }
 
                 Button {
                     text: "Browse..."
-                    onClicked: folderDialog.open()
+                    onClicked: if (backendAvailable) folderDialog.open()
+                    enabled: backendAvailable
                 }
             }
         }
 
-        
-        // 并发下载设置部分
         GridLayout {
             columns: 2
             columnSpacing: 10
@@ -71,11 +72,12 @@ GroupBox {
                     id: concurrentDownloadsInput
                     from: 1
                     to: 10
-                    value: settingsBackend.concurrentDownloads
-                    onMoved: settingsBackend.concurrentDownloads = value
+                    value: backendAvailable ? settingsBackend.concurrentDownloads : 1
+                    onMoved: if (backendAvailable) settingsBackend.concurrentDownloads = value
                     stepSize: 1
-                    snapMode: Slider.SnapAlways // 确保取整
+                    snapMode: Slider.SnapAlways
                     Layout.fillWidth: true
+                    enabled: backendAvailable
                 }
                 Label {
                     text: concurrentDownloadsInput.value.toFixed(0)
@@ -83,7 +85,6 @@ GroupBox {
             }
         }
 
-        // 单文件下载线程数设置
         GridLayout {
             columns: 2
             columnSpacing: 10
@@ -100,11 +101,12 @@ GroupBox {
                     id: maxThreadsInput
                     from: 1
                     to: 64
-                    value: settingsBackend.maxThreadsPerDownload
-                    onMoved: settingsBackend.maxThreadsPerDownload = value
+                    value: backendAvailable ? settingsBackend.maxThreadsPerDownload : 1
+                    onMoved: if (backendAvailable) settingsBackend.maxThreadsPerDownload = value
                     stepSize: 1
                     snapMode: Slider.SnapAlways
                     Layout.fillWidth: true
+                    enabled: backendAvailable
                 }
                 Label {
                     text: maxThreadsInput.value.toFixed(0)
@@ -115,17 +117,17 @@ GroupBox {
         Item { Layout.fillHeight: true }
     }
 
-    // 文件夹选择对话框
     FolderDialog {
         id: folderDialog
         title: "Select Download Folder"
         onAccepted: {
-            settingsBackend.downloadFolder = selectedFolder
-            downloadFolderInput.text = settingsBackend.downloadFolder
+            if (backendAvailable) {
+                settingsBackend.downloadFolder = selectedFolder
+                downloadFolderInput.text = settingsBackend.downloadFolder
+            }
         }
     }
 
-    // 无效路径提示弹窗
     Popup {
         id: invalidPathToast
         x: (parent.width - width) / 2
@@ -138,7 +140,7 @@ GroupBox {
 
         Label {
             anchors.centerIn: parent
-            text: "Invalid folder path!"
+            text: invalidPathToast.text
             color: "red"
         }
 

@@ -5,67 +5,36 @@ import QtQuick.Layouts
 import QtQuick.Window
 
 ColumnLayout {
-    // Error popup component
-    Popup {
+    id: root
+    
+    DownloadingPageErrorPopup {
         id: errorPopup
-        width: 300
-        height: 150
-        modal: true
-        focus: true
-        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-        x: (parent.width - width) / 2
-        y: (parent.height - height) / 2
-        
-        ColumnLayout {
-            anchors.fill: parent
-            spacing: 10
-            
-            Label {
-                id: errorMessage
-                Layout.fillWidth: true
-                wrapMode: Text.Wrap
-                color: "red"
-            }
-            
-            Button {
-                text: "OK"
-                Layout.alignment: Qt.AlignHCenter
-                onClicked: errorPopup.close()
-            }
-        }
     }
 
     function showError(message) {
-        errorMessage.text = message
+        errorPopup.message = message
         errorPopup.open()
     }
 
-    // URL input and download button
-    RowLayout {
+    DownloadingPageControls {
+        id: downloadControls
         Layout.fillWidth: true
         
-        TextField {
-            id: urlInput
-            Layout.fillWidth: true
-            placeholderText: "Enter download URL"
-            selectByMouse: true
-        }
-
-        Button {
-            text: "Download"
-            onClicked: {
-                const url = urlInput.text.trim()
-                if (url) {
-                    if (isDuplicateUrl(url)) {
-                        showError("This download is already in progress")
-                    } else if (downloadingPageBackend.isUrlInHistory(url)) {
-                        showError("This file has already been downloaded")
-                    } else {
-                        downloadingPageBackend.startDownload(url)
-                        urlInput.clear()
-                    }
-                }
+        onDownloadRequested: function(url) {
+            console.log("[1] Download requested:", url)
+            if (isDuplicateUrl(url)) {
+                console.log("[2] Blocked: Duplicate in current downloads")
+                showError(qsTr("This download is already in progress"))
+                return
             }
+            if (downloadingPageBackend.isUrlInHistory(url)) {
+                console.log("[3] Blocked: Found in history")
+                showError(qsTr("This file has already been downloaded"))
+                return
+            }
+            console.log("[4] Starting download...")
+            downloadingPageBackend.startDownload(url)
+            downloadControls.clearUrl()
         }
     }
 
@@ -78,7 +47,6 @@ ColumnLayout {
         return false
     }
 
-    // Download list view
     ListView {
         id: downloadList
         Layout.fillWidth: true
@@ -86,64 +54,21 @@ ColumnLayout {
         spacing: 5
         model: ListModel { id: downloadModel }
 
-        delegate: Frame {
-            width: downloadList.width
-            padding: 10
-
-            ColumnLayout {
-                width: parent.width
-
-                RowLayout {
-                    Label {
-                        text: model.filename
-                        elide: Text.ElideMiddle
-                        Layout.fillWidth: true
-                        color: model.isError ? "red" : palette.text
-                    }
-
-                    Button {
-                        text: "Cancel"
-                        enabled: !model.isError && !model.isCompleted
-                        onClicked: downloadingPageBackend.cancelDownload(model.url)
-                    }
-                }
-
-                ProgressBar {
-                    value: model.progress / 100
-                    Layout.fillWidth: true
-                    visible: !model.isError && !model.isCompleted
-                }
-
-                RowLayout {
-                    visible: !model.isError && !model.isCompleted
-                    Label { text: formatSpeed(model.speed) }
-                
-                    Label {
-                        text: `Progress: ${model.progress.toFixed(1)}%`
-                        horizontalAlignment: Text.AlignRight
-                        Layout.fillWidth: true
-                    }
-                }
-
-                Label {
-                    visible: model.isError
-                    text: model.errorMessage
-                    color: "red"
-                    Layout.fillWidth: true
-                }
-
-                Label {
-                    visible: model.isCompleted
-                    text: "Download completed!"
-                    color: "green"
-                    Layout.fillWidth: true
-                }
-            }
+        delegate: DownloadingPageItemDelegate {
+            filename: model.filename
+            progress: model.progress / 100
+            speed: root.formatSpeed(model.speed)
+            progressText: qsTr("Progress: %1%").arg(model.progress.toFixed(1))
+            isError: model.isError
+            isCompleted: model.isCompleted
+            errorMessage: model.errorMessage
+            
+            onCancelRequested: downloadingPageBackend.cancelDownload(model.url)
         }
     }
 
     function formatSpeed(speed) {
-        if (speed <= 0) return "Starting..."
+        if (speed <= 0) return qsTr("Calculating...")
         if (speed < 1024) return `${speed.toFixed(0)} B/s`
         if (speed < 1024 * 1024) return `${(speed / 1024).toFixed(1)} KB/s`
         return `${(speed / (1024 * 1024)).toFixed(1)} MB/s`
@@ -156,7 +81,7 @@ ColumnLayout {
             downloadModel.append({
                 url: url,
                 filename: downloadingPageBackend.getDownloadFilename(url) || "Unknown",
-                savePath: "",
+                savePath: downloadingPageBackend.getDownloadSavePath(url) || "",
                 progress: downloadingPageBackend.getDownloadProgress(url),
                 speed: downloadingPageBackend.getDownloadSpeed(url),
                 isError: false,
@@ -217,12 +142,16 @@ ColumnLayout {
                 }
             }
             if (typeof downloadedPageBackend !== "undefined") {
-                downloadedPageBackend.addDownload(url, savePath.split("/").pop())
+                const filename = savePath.split("/").pop()
+                const folder = savePath.substring(0, savePath.lastIndexOf("/"))
+                const file = Qt.resolvedUrl(savePath)
+                if (file.toString().length > 0) {
+                    downloadedPageBackend.addDownload(url, filename, folder)
+                }
             }
         }
 
         function onDownloadError(url, errorMessage) {
-            // 先更新模型再显示弹窗，避免阻塞
             for (let i = 0; i < downloadModel.count; i++) {
                 if (downloadModel.get(i).url === url) {
                     downloadModel.set(i, {
@@ -230,19 +159,17 @@ ColumnLayout {
                         filename: downloadModel.get(i).filename,
                         savePath: downloadModel.get(i).savePath,
                         progress: downloadModel.get(i).progress,
-                        speed: 0, // 重置速度为0
+                        speed: 0,
                         isError: true,
-                        isCompleted: false, // 确保完成状态为false
+                        isCompleted: false,
                         errorMessage: errorMessage
                     })
                     break
                 }
             }
             
-            // 使用定时器避免阻塞UI
             Qt.callLater(() => {
                 showError(errorMessage)
-                errorCleanupTimer.start() // 确保自动清理定时器启动
             })
         }
 
@@ -265,4 +192,3 @@ ColumnLayout {
         }
     }
 }
-
