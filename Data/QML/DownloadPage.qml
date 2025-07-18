@@ -36,7 +36,7 @@ Page {
 
                 Loader {
                     id: downloadedLoader
-                    source: "DownloadedPage.qml"
+                    source: "DownloadedPage/DownloadedPage.qml"
                     active: true
                 }
             }

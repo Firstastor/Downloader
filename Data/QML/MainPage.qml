@@ -8,7 +8,7 @@ Page {
     property int currentPage: 0
 
     Loader {
-        id: pageLoader
+        id: mainPageLoader
         anchors.fill: parent
         source: currentPage === 0 ? "DownloadPage.qml" : "SettingPage.qml"
     }

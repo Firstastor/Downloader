@@ -5,6 +5,7 @@ import QtQuick.Layouts
 import QtQuick.Window
 
 Window {
+    
     id: mainWindow
     width: 1080
     height: 720
@@ -18,8 +19,6 @@ Window {
         anchors.fill: parent
         color: palette.window
         radius: mainWindow.visibility === Window.Maximized ? 0 : 20
-        
-        // 添加圆角变化动画
         Behavior on radius {
             NumberAnimation { duration: 100 }
         }

@@ -17,7 +17,7 @@ Rectangle{
             id: pushbtndownload
             icon.source: "../Image/download.png"
             display: AbstractButton.TextUnderIcon
-            text:"Download"
+            text: qsTr("Download")
             flat:true
             onClicked: switchPage(0)
         }
@@ -26,7 +26,7 @@ Rectangle{
             id: pushbtnsetting
             icon.source: "../Image/setting.png"
             display: AbstractButton.TextUnderIcon
-            text:"Setting"
+            text: qsTr("Setting")
             flat:true
             onClicked: switchPage(1)
         }

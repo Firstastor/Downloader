@@ -14,7 +14,7 @@ if __name__ == "__main__":
     settings = Settings()
     downloadingPage = DownloadingPage(settings)
     downloadedPage = DownloadedPage(settings)
-    downloadHistory = DownloadHistory()
+    downloadHistory = DownloadHistory(settings)
     
     engine = QQmlApplicationEngine()
     engine.rootContext().setContextProperty("settingsBackend", settings)
