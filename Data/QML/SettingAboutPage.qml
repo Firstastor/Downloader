@@ -17,7 +17,7 @@ GroupBox {
             font.pixelSize: 16
         }
         Label { 
-            text: qsTr("Version 0.0.5" )
+            text: qsTr("Version 0.1" )
             font.pixelSize: 14
         }
         Label {

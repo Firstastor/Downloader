@@ -27,7 +27,7 @@ ColumnLayout {
 
                 RowLayout {
                     Button {
-                        text: "Open File"
+                        text: qsTr("Open File")
                         onClicked: {
                             var fileUrl = downloadedPageBackend.getFileUrl(modelData.filename, modelData.folder)
                             if (fileUrl.toString() !== "") {
@@ -39,7 +39,7 @@ ColumnLayout {
                     }
 
                     Button {
-                        text: "Open Folder"
+                        text: qsTr("Open Folder")
                         onClicked: {
                             var folderUrl = downloadedPageBackend.getFolderUrl(modelData.filename, modelData.folder)
                             if (folderUrl.toString() !== "") {
@@ -51,7 +51,7 @@ ColumnLayout {
                     }
 
                     Button {
-                        text: "Delete"
+                        text: qsTr("Open Folder")
                         onClicked: {
                             deleteDialog.url = modelData.url
                             deleteDialog.filename = modelData.filename
