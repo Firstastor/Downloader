@@ -31,7 +31,7 @@ GroupBox {
                     id: downloadFolderInput
                     Layout.fillWidth: true
                     text: backendAvailable ? settingsBackend.downloadFolder : ""
-                    placeholderText: "Enter download folder path (e.g. C:\\Downloads)"
+                    placeholderText: "Enter download folder path"
                     enabled: backendAvailable
                     
                     onEditingFinished: {
@@ -100,7 +100,7 @@ GroupBox {
                 Slider {
                     id: maxThreadsInput
                     from: 1
-                    to: 64
+                    to: 128
                     value: backendAvailable ? settingsBackend.maxThreadsPerDownload : 1
                     onMoved: if (backendAvailable) settingsBackend.maxThreadsPerDownload = value
                     stepSize: 1

@@ -22,7 +22,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name='Downloader',
-    debug=False,
+    debug=False,    
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,

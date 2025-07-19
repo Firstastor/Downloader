@@ -1,5 +1,5 @@
 from PySide6.QtCore import QObject, Signal, Property, Slot, QUrl, QFile, QIODevice, QDir, QFileInfo, QTimer, QElapsedTimer
-from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply, QNetworkDiskCache
 
 class DownloadingPage(QObject):
     downloadStarted = Signal(str, str, str)  # url, filename, savePath
@@ -7,13 +7,22 @@ class DownloadingPage(QObject):
     downloadCompleted = Signal(str, str)  # url, savePath
     downloadError = Signal(str, str)  # url, errorMessage
     downloadCancelled = Signal(str)  # url
+    downloadPaused = Signal(str)  # url
+    downloadResumed = Signal(str)  # url
+
 
     def __init__(self, settings, parent=None):
         super().__init__(parent)
         self._settings = settings
         self._activeDownloads = {}
         self._networkManager = QNetworkAccessManager(self)
-        self._history = settings.downloadHistory  # Store reference to history
+        self._history = settings.downloadHistory
+        cache = QNetworkDiskCache(self._networkManager)
+        cacheDir = QDir(self.downloadFolder).filePath(".http_cache")
+        cache.setCacheDirectory(cacheDir)
+        cache.setMaximumCacheSize(512 * 1024 * 1024) 
+        self._networkManager.setCache(cache)
+        self._networkManager.finished.connect(self._onReplyFinished)
 
     @Property(str, constant=True)
     def downloadFolder(self):
@@ -55,6 +64,8 @@ class DownloadingPage(QObject):
             request.setAttribute(QNetworkRequest.Http2AllowedAttribute, True)
             request.setAttribute(QNetworkRequest.Http2CleartextAllowedAttribute, True)
             request.setHeader(QNetworkRequest.UserAgentHeader, "Mozilla/5.0")
+            request.setRawHeader(b"Accept-Ranges", b"bytes")
+            request.setRawHeader(b"Cache-Control", b"no-cache")
 
             timer = QElapsedTimer()
             timer.start()
@@ -271,16 +282,15 @@ class DownloadingPage(QObject):
     def _cleanupDownload(self, urlStr):
         if urlStr in self._activeDownloads:
             info = self._activeDownloads.pop(urlStr)
-            if info["file"].isOpen():
+            if "file" in info and info["file"].isOpen():
                 info["file"].close()
-            if not info.get("isCancelled", False):
-                tempFile = QFile(info["tempPath"])
-                if tempFile.exists():
-                    tempFile.remove()
-            reply = info.get("reply")
-            if reply:
-                reply.deleteLater()
-        print(f"Cleaned up download: {urlStr}")
+            
+            if "reply" in info:
+                info["reply"].deleteLater()
+
+    def _onReplyFinished(self, reply):
+        if reply.operation() == QNetworkAccessManager.GetOperation:
+            reply.setReadBufferSize(4 * 1024 * 1024)
 
     @Slot(QUrl, result=float)
     def getDownloadProgress(self, url):
@@ -320,3 +330,51 @@ class DownloadingPage(QObject):
     @Slot(str, result=bool)
     def isUrlDownloaded(self, url):
         return self._history.isUrlValid(url)
+    
+    @Slot(QUrl)
+    def pauseDownload(self, url):
+        urlStr = url.toString()
+        if urlStr not in self._activeDownloads:
+            return
+        
+        info = self._activeDownloads[urlStr]
+        if info.get("isPaused", False):
+            return
+        
+        reply = info.get("reply")
+        if reply:
+            try:
+                reply.blockSignals(True) 
+                reply.setReadBufferSize(0)  
+                info["file"].flush() 
+                info["isPaused"] = True
+                self.downloadPaused.emit(urlStr)
+                print(f"Paused: {urlStr} | Buffer size: {reply.readBufferSize()}")
+            except Exception as e:
+                print(f"Pause error: {str(e)}")
+                self.downloadError.emit(urlStr, f"Pause failed: {str(e)}")
+
+    @Slot(QUrl)
+    def resumeDownload(self, url):
+        urlStr = url.toString()
+        if urlStr not in self._activeDownloads:
+            return
+        
+        info = self._activeDownloads[urlStr]
+        if not info.get("isPaused", False):
+            return
+        
+        reply = info.get("reply")
+        if reply:
+            try:
+                reply.blockSignals(False)
+                reply.setReadBufferSize(4 * 1024 * 1024)  # 恢复缓冲
+                info["isPaused"] = False
+                self.downloadResumed.emit(urlStr)
+            except Exception as e:
+                print(f"Resume error: {str(e)}")
+
+    @Slot(QUrl, result=bool)
+    def isDownloadPaused(self, url):
+        urlStr = url.toString()
+        return self._activeDownloads.get(urlStr, {}).get("isPaused", False)

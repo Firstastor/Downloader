@@ -11,13 +11,20 @@ Frame {
     property alias progressText: progressLabel.text
     property bool isError: false
     property bool isCompleted: false
+    property bool isPaused: false
     property alias errorMessage: errorLabel.text
     property bool canCancel: !isError && !isCompleted
+    property bool canPause: canCancel && !isPaused
+    property bool canResume: canCancel && isPaused
     
     signal cancelRequested()
+    signal pauseRequested()
+    signal resumeRequested()
     
     width: ListView.view ? ListView.view.width : parent.width
     padding: 10
+
+
 
     ColumnLayout {
         width: parent.width
@@ -27,11 +34,23 @@ Frame {
                 id: filenameLabel
                 elide: Text.ElideMiddle
                 Layout.fillWidth: true
-                color: isError ? "red" : palette.text
+                color: isError ? "red" : (isPaused ? "orange" : palette.text)
             }
 
             Button {
-                text:  qsTr("Cancel")
+                text: qsTr("Pause")
+                visible: canPause
+                onClicked: pauseRequested()
+            }
+
+            Button {
+                text: qsTr("Resume")
+                visible: canResume
+                onClicked: resumeRequested()
+            }
+
+            Button {
+                text: qsTr("Cancel")
                 enabled: canCancel
                 onClicked: cancelRequested()
             }
@@ -65,6 +84,13 @@ Frame {
             visible: isCompleted
             text: qsTr("Download completed")
             color: "green"
+            Layout.fillWidth: true
+        }
+
+        Label {
+            visible: isPaused
+            text: qsTr("Download paused")
+            color: "orange"
             Layout.fillWidth: true
         }
     }

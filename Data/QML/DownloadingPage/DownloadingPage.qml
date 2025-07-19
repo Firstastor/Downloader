@@ -49,9 +49,12 @@ ColumnLayout {
             progressText: qsTr("Progress: %1%").arg(model.progress.toFixed(1))
             isError: model.isError
             isCompleted: model.isCompleted
+            isPaused: model.isPaused
             errorMessage: model.errorMessage
             
             onCancelRequested: downloadingPageBackend.cancelDownload(model.url)
+            onPauseRequested: downloadingPageBackend.pauseDownload(model.url)
+            onResumeRequested: downloadingPageBackend.resumeDownload(model.url)
         }
     }
 
@@ -70,10 +73,11 @@ ColumnLayout {
                 url: url,
                 filename: downloadingPageBackend.getDownloadFilename(url) || "Unknown",
                 savePath: downloadingPageBackend.getDownloadSavePath(url) || "",
-                progress: downloadingPageBackend.getDownloadProgress(url),
-                speed: downloadingPageBackend.getDownloadSpeed(url),
+                progress: downloadingPageBackend.getDownloadProgress(url) || 0,
+                speed: downloadingPageBackend.getDownloadSpeed(url) || 0,
                 isError: false,
                 isCompleted: false,
+                isPaused: downloadingPageBackend.isDownloadPaused(url) || false, // 确保有默认值
                 errorMessage: ""
             })
         })
@@ -107,6 +111,7 @@ ColumnLayout {
                 speed: 0,
                 isError: false,
                 isCompleted: false,
+                isPaused: false,
                 errorMessage: ""
             })
         }
@@ -155,6 +160,24 @@ ColumnLayout {
             for (let i = 0; i < downloadModel.count; i++) {
                 if (downloadModel.get(i).url === url) {
                     downloadModel.remove(i)
+                    break
+                }
+            }
+        }
+
+        function onDownloadPaused(url) {
+            for (let i = 0; i < downloadModel.count; i++) {
+                if (downloadModel.get(i).url === url) {
+                    downloadModel.setProperty(i, "isPaused", true)
+                    break
+                }
+            }
+        }
+        
+        function onDownloadResumed(url) {
+            for (let i = 0; i < downloadModel.count; i++) {
+                if (downloadModel.get(i).url === url) {
+                    downloadModel.setProperty(i, "isPaused", false)
                     break
                 }
             }
