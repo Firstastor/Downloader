@@ -14,6 +14,9 @@ Dialog {
     property string url
     property string filename
     
+    // Add property for the checkbox state
+    property bool deleteFile: false
+    
     onAboutToShow: {
         if (!filename) console.error("Filename not specified")
     }
@@ -38,11 +41,20 @@ Dialog {
             Layout.fillWidth: true
             Layout.maximumWidth: parent.width
         }
+        
+        // Add the checkbox
+        CheckBox {
+            id: deleteFileCheckbox
+            text: qsTr("Also delete the file from disk")
+            checked: deleteDialog.deleteFile
+            onCheckedChanged: deleteDialog.deleteFile = checked
+            Layout.fillWidth: true
+        }
     }
 
     onAccepted: {
         if (url) {
-            downloadedPageBackend.removeDownload(url)
+            downloadedPageBackend.removeDownload(url, deleteFile)
         } else {
             console.error("Invalid URL specified for deletion")
         }

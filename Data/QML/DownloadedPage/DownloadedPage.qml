@@ -29,7 +29,7 @@ ColumnLayout {
                     Button {
                         text: "Open File"
                         onClicked: {
-                            var fileUrl = downloadedPageBackend.getFileUrl(modelData.filename)
+                            var fileUrl = downloadedPageBackend.getFileUrl(modelData.filename, modelData.folder)
                             if (fileUrl.toString() !== "") {
                                 Qt.openUrlExternally(fileUrl)
                             } else {
@@ -41,7 +41,7 @@ ColumnLayout {
                     Button {
                         text: "Open Folder"
                         onClicked: {
-                            var folderUrl = downloadedPageBackend.getFolderUrl(modelData.filename)
+                            var folderUrl = downloadedPageBackend.getFolderUrl(modelData.filename, modelData.folder)
                             if (folderUrl.toString() !== "") {
                                 Qt.openUrlExternally(folderUrl)
                             } else {

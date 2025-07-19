@@ -21,18 +21,6 @@ ColumnLayout {
         Layout.fillWidth: true
         
         onDownloadRequested: function(url) {
-            console.log("[1] Download requested:", url)
-            if (isDuplicateUrl(url)) {
-                console.log("[2] Blocked: Duplicate in current downloads")
-                showError(qsTr("This download is already in progress"))
-                return
-            }
-            if (downloadingPageBackend.isUrlInHistory(url)) {
-                console.log("[3] Blocked: Found in history")
-                showError(qsTr("This file has already been downloaded"))
-                return
-            }
-            console.log("[4] Starting download...")
             downloadingPageBackend.startDownload(url)
             downloadControls.clearUrl()
         }
@@ -154,16 +142,6 @@ ColumnLayout {
         function onDownloadError(url, errorMessage) {
             for (let i = 0; i < downloadModel.count; i++) {
                 if (downloadModel.get(i).url === url) {
-                    downloadModel.set(i, {
-                        url: url,
-                        filename: downloadModel.get(i).filename,
-                        savePath: downloadModel.get(i).savePath,
-                        progress: downloadModel.get(i).progress,
-                        speed: 0,
-                        isError: true,
-                        isCompleted: false,
-                        errorMessage: errorMessage
-                    })
                     break
                 }
             }

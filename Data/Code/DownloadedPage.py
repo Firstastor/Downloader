@@ -25,9 +25,9 @@ class DownloadedPage(QObject):
     def addDownload(self, url, filename, folder=None):
         self._history.addRecord(url, filename, folder)
 
-    @Slot(str)
-    def removeDownload(self, url):
-        self._history.removeRecord(url)
+    @Slot(str, bool) 
+    def removeDownload(self, url, deleteFile=False):
+        self._history.removeRecord(url, deleteFile) 
 
     @Slot(str, str, result=QUrl)
     def getFileUrl(self, filename, folder=None):

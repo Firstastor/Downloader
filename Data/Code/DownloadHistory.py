@@ -38,7 +38,13 @@ class DownloadHistory(QObject):
             })
             self._saveHistory()
 
-    def removeRecord(self, url):
+    def removeRecord(self, url, deleteFile=False):
+        record = next((d for d in self._history if d['url'] == url), None)
+        if record and deleteFile:
+            file_path = QDir(record.get('folder', self._downloadFolder)).filePath(record['filename'])
+            if QFile.exists(file_path):
+                QFile.remove(file_path)
+
         self._history = [d for d in self._history if d['url'] != url]
         self._saveHistory()
 
@@ -74,16 +80,9 @@ class DownloadHistory(QObject):
         self.historyChanged.emit()
 
     def isUrlValid(self, url):
-        """Check if URL exists in history AND file still exists"""
         url = url.strip().lower()
         for record in self._history:
             if record['url'].lower() == url:
                 file_path = QDir(record.get('folder', self._downloadFolder)).filePath(record['filename'])
                 return QFile.exists(file_path)
         return False
-
-    def cleanupInvalidEntries(self):
-        """Remove history entries where files don't exist"""
-        self._history = [record for record in self._history if 
-                        QFile.exists(QDir(record.get('folder', self._downloadFolder)).filePath(record['filename']))]
-        self._saveHistory()
